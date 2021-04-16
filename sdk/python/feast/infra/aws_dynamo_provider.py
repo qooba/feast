@@ -24,7 +24,7 @@ from feast.registry import Registry
 from feast.repo_config import DatastoreOnlineStoreConfig, RepoConfig
 
 
-class AwsProvider(Provider):
+class AwsDynamoProvider(Provider):
     _aws_project_id: Optional[str]
 
     def __init__(self, config: Optional[DatastoreOnlineStoreConfig]):
@@ -48,10 +48,10 @@ class AwsProvider(Provider):
         client = self._initialize_client()
 
         for table_name in tables_to_keep:
-            table = client.Table(table_name)
+            table = client.Table(table_name.name)
             table.update_item(
                 Key={
-                    "Project", project, "Table", table.name
+                    "Project": project
                 },
                 UpdateExpression='SET created_ts = :val1',
                 ExpressionAttributeValues={
@@ -60,7 +60,7 @@ class AwsProvider(Provider):
             )
 
         for table_name in tables_to_delete:
-            table = client.Table(table_name)
+            table = client.Table(table_name.name)
             table.delete()
 
     def teardown_infra(
@@ -87,7 +87,7 @@ class AwsProvider(Provider):
         with table_instance.batch_writer() as batch:
             for entity_key, features, timestamp, created_ts in data:
                 document_id = compute_datastore_entity_id(entity_key) #TODO check id
-
+                #TODO compression encoding
                 batch.put_item(
                     Item={
                         "Row": document_id, #PartitionKey
@@ -157,7 +157,6 @@ class AwsProvider(Provider):
         pass
 
 def compute_datastore_entity_id(entity_key: EntityKeyProto) -> str:
-    #TODO base-93
     """
     Compute Datastore Entity id given Feast Entity Key.
 
