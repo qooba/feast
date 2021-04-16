@@ -130,6 +130,12 @@ def get_provider(config: RepoConfig) -> Provider:
         return GcpProvider(
             config.online_store.datastore if config.online_store else None
         )
+    elif config.provider == "aws":
+        from feast.infra.aws_provider import AwsProvider
+
+        return AwsProvider(
+            config.online_store.datastore if config.online_store else None
+        )
     elif config.provider == "local":
         from feast.infra.local import LocalProvider
 

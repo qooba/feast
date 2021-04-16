@@ -1,7 +1,6 @@
 import boto3
-# import itertools
+import itertools
 from datetime import datetime
-# from multiprocessing.pool import ThreadPool
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 import mmh3
@@ -9,7 +8,6 @@ import pandas
 import pyarrow
 
 from feast import FeatureTable, utils
-from feast.data_source import BigQuerySource
 from feast.feature_view import FeatureView
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.offline_stores.helpers import get_offline_store_from_sources
@@ -27,13 +25,13 @@ from feast.repo_config import DatastoreOnlineStoreConfig, RepoConfig
 
 
 class AwsProvider(Provider):
-    # _aws_project_id: Optional[str]
+    _aws_project_id: Optional[str]
 
     def __init__(self, config: Optional[DatastoreOnlineStoreConfig]):
-        # if config:
-        #     self._aws_project_id = config.project_id
-        # else:
-        #     self._aws_project_id = None
+        if config:
+            self._aws_project_id = config.project_id
+        else:
+            self._aws_project_id = None
 
     def _initialize_client(self):
         client = boto3.client('dynamodb')
@@ -85,20 +83,19 @@ class AwsProvider(Provider):
     ) -> None:
         client = self._initialize_client()
 
-        table_instance = client.Table(table)
+        table_instance = client.Table(table.name)
         with table_instance.batch_writer() as batch:
             for entity_key, features, timestamp, created_ts in data:
                 document_id = compute_datastore_entity_id(entity_key) #TODO check id
 
                 batch.put_item(
                     Item={
-                        "Project": project,
-                        "Table": table.name,
-                        "Row": document_id,
+                        "Row": document_id, #PartitionKey
+                        "Project": project, #SortKey
                         "event_ts": utils.make_tzaware(timestamp),
                         "created_ts": utils.make_tzaware(created_ts),
                         "values": {
-                                   k: v.SerializeToString() for k, v in features.items()
+                                   k: v.SerializeToString() for k, v in features.items() #Serialized Features
                                },
                     }
                 )
@@ -113,11 +110,12 @@ class AwsProvider(Provider):
 
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
         for entity_key in entity_keys:
-            table_instace = client.Table(table)
+            table_instace = client.Table(table.name)
             document_id = compute_datastore_entity_id(entity_key) #TODO check id
             response = table_instace.get_item(
                 Key={
-                    "Project", project, "Table", table.name, "Row", document_id
+                    "Row": document_id,
+                    "Project": project
                 }
             )
             value = response['Item']
@@ -143,6 +141,7 @@ class AwsProvider(Provider):
             project: str,
     ) -> None:
         #TODO implement me
+        pass
 
 
     @staticmethod
@@ -154,7 +153,8 @@ class AwsProvider(Provider):
             registry: Registry,
             project: str,
     ) -> RetrievalJob:
-#   TODO implement me
+        #TODO implement me
+        pass
 
 def compute_datastore_entity_id(entity_key: EntityKeyProto) -> str:
     #TODO base-93
