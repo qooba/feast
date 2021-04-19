@@ -25,7 +25,7 @@ from feast.feature import Feature
 from feast.feature_store import FeatureStore
 from feast.feature_view import FeatureView
 from feast.protos.feast.types import Value_pb2 as ValueProto
-from feast.repo_config import LocalOnlineStoreConfig, OnlineStoreConfig, RepoConfig
+from feast.repo_config import RepoConfig, SqliteOnlineStoreConfig
 from feast.value_type import ValueType
 
 
@@ -38,9 +38,7 @@ def feature_store_with_local_registry():
             registry=registry_path,
             project="default",
             provider="local",
-            online_store=OnlineStoreConfig(
-                local=LocalOnlineStoreConfig(path=online_store_path)
-            ),
+            online_store=SqliteOnlineStoreConfig(path=online_store_path),
         )
     )
 
@@ -79,8 +77,8 @@ def test_apply_entity_success(test_feature_store):
         labels={"team": "matchmaking"},
     )
 
-    # Register Entity with Core
-    test_feature_store.apply([entity])
+    # Register Entity
+    test_feature_store.apply(entity)
 
     entities = test_feature_store.list_entities()
 
@@ -107,7 +105,7 @@ def test_apply_entity_integration(test_feature_store):
         labels={"team": "matchmaking"},
     )
 
-    # Register Entity with Core
+    # Register Entity
     test_feature_store.apply([entity])
 
     entities = test_feature_store.list_entities()

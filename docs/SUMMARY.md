@@ -19,13 +19,11 @@
 * [Architecture](concepts/architecture.md)
 * [Feature Repository](concepts/feature-repository.md)
 * [Feature Views](concepts/feature-views.md)
-* [Entities](concepts/entities.md)
-* [Sources](concepts/sources.md)
 * [Apply](concepts/apply.md)
 
 ## Reference
 
-* [Repository Config](reference/repository-config.md)
+* [feature\_store.yaml](reference/feature-store-yaml.md)
 * [Python API reference](http://rtd.feast.dev/)
 
 ## Feast on Kubernetes

@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
+from colorama import Fore, Style
 
+from feast import utils
 from feast.entity import Entity
 from feast.feature_view import FeatureView
 from feast.infra.provider import Provider, RetrievalJob, get_provider
@@ -28,12 +30,7 @@ from feast.protos.feast.serving.ServingService_pb2 import (
 )
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.registry import Registry
-from feast.repo_config import (
-    LocalOnlineStoreConfig,
-    OnlineStoreConfig,
-    RepoConfig,
-    load_repo_config,
-)
+from feast.repo_config import RepoConfig, load_repo_config
 from feast.telemetry import Telemetry
 from feast.version import get_version
 
@@ -50,6 +47,12 @@ class FeatureStore:
     def __init__(
         self, repo_path: Optional[str] = None, config: Optional[RepoConfig] = None,
     ):
+        """ Initializes a new FeatureStore object. Used to manage a feature store.
+
+        Args:
+            repo_path: Path to a `feature_store.yaml` used to configure the feature store
+            config (RepoConfig): Configuration object used to configure the feature store
+        """
         self.repo_path = repo_path
         if repo_path is not None and config is not None:
             raise ValueError("You cannot specify both repo_path and config")
@@ -58,14 +61,7 @@ class FeatureStore:
         elif repo_path is not None:
             self.config = load_repo_config(Path(repo_path))
         else:
-            self.config = RepoConfig(
-                registry="./registry.db",
-                project="default",
-                provider="local",
-                online_store=OnlineStoreConfig(
-                    local=LocalOnlineStoreConfig(path="online_store.db")
-                ),
-            )
+            raise ValueError("Please specify one of repo_path or config")
 
         registry_config = self.config.get_registry_config()
         self._registry = Registry(
@@ -175,7 +171,9 @@ class FeatureStore:
 
         return self._registry.delete_feature_view(name, self.project)
 
-    def apply(self, objects: List[Union[FeatureView, Entity]]):
+    def apply(
+        self, objects: Union[Entity, FeatureView, List[Union[FeatureView, Entity]]]
+    ):
         """Register objects to metadata store and update related infrastructure.
 
         The apply method registers one or more definitions (e.g., Entity, FeatureView) and registers or updates these
@@ -209,6 +207,8 @@ class FeatureStore:
         # TODO: Add locking
         # TODO: Optimize by only making a single call (read/write)
 
+        if isinstance(objects, Entity) or isinstance(objects, FeatureView):
+            objects = [objects]
         views_to_update = []
         for ob in objects:
             if isinstance(ob, FeatureView):
@@ -328,13 +328,16 @@ class FeatureStore:
             if start_date is None:
                 if feature_view.ttl is None:
                     raise Exception(
-                        f"No start time found for feature view {feature_view.name}. materialize_incremental() requires either a ttl to be set or for materialize() to have been run at least once."
+                        f"No start time found for feature view {feature_view.name}. materialize_incremental() requires"
+                        f" either a ttl to be set or for materialize() to have been run at least once."
                     )
                 start_date = datetime.utcnow() - feature_view.ttl
             provider = self._get_provider()
+            _print_materialization_log(start_date, end_date, feature_view)
             provider.materialize_single_feature_view(
                 feature_view, start_date, end_date, self._registry, self.project
             )
+            print(" done!")
 
     def materialize(
         self,
@@ -368,6 +371,11 @@ class FeatureStore:
         """
         self._tele.log("materialize")
 
+        if utils.make_tzaware(start_date) > utils.make_tzaware(end_date):
+            raise ValueError(
+                f"The given start_date {start_date} is greater than the given end_date {end_date}."
+            )
+
         feature_views_to_materialize = []
         if feature_views is None:
             feature_views_to_materialize = self._registry.list_feature_views(
@@ -383,9 +391,11 @@ class FeatureStore:
         # TODO paging large loads
         for feature_view in feature_views_to_materialize:
             provider = self._get_provider()
+            _print_materialization_log(start_date, end_date, feature_view)
             provider.materialize_single_feature_view(
                 feature_view, start_date, end_date, self._registry, self.project
             )
+            print(" done!")
 
     def get_online_features(
         self, feature_refs: List[str], entity_rows: List[Dict[str, Any]],
@@ -570,3 +580,13 @@ def _get_table_entity_keys(
             EntityKeyProto(join_keys=entity_names, entity_values=entity_values)
         )
     return entity_key_protos
+
+
+def _print_materialization_log(start_date, end_date, feature_view):
+    print(
+        f"Materializing feature view {Style.BRIGHT + Fore.GREEN}{feature_view.name}{Style.RESET_ALL}"
+        f" from {Style.BRIGHT + Fore.GREEN}{start_date.astimezone()}{Style.RESET_ALL}"
+        f" to {Style.BRIGHT + Fore.GREEN}{end_date.astimezone()}{Style.RESET_ALL}",
+        end="",
+        flush=True,
+    )

@@ -126,22 +126,14 @@ class Provider(abc.ABC):
 def get_provider(config: RepoConfig) -> Provider:
     if config.provider == "gcp":
         from feast.infra.gcp import GcpProvider
-
-        return GcpProvider(
-            config.online_store.datastore if config.online_store else None
-        )
+        return GcpProvider(config)
     elif config.provider == "aws_dynamo":
-        from feast.infra.aws_provider import AwsDynamoProvider
-
-        return AwsProvider(
-            config.online_store.datastore if config.online_store else None
-        )
+        from feast.infra.aws_dynamo_provider import AwsDynamoProvider
+        return AwsProvider(config)
     elif config.provider == "local":
         from feast.infra.local import LocalProvider
 
-        assert config.online_store is not None
-        assert config.online_store.local is not None
-        return LocalProvider(config.online_store.local)
+        return LocalProvider(config)
     else:
         raise ValueError(config)
 
@@ -274,7 +266,7 @@ def _convert_arrow_to_proto(
         )
         event_timestamp = _coerce_datetime(row[event_timestamp_idx])
 
-        if feature_view.input.created_timestamp_column is not None:
+        if feature_view.input.created_timestamp_column:
             created_timestamp_idx = table.column_names.index(
                 feature_view.input.created_timestamp_column
             )

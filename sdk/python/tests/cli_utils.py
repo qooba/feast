@@ -49,8 +49,7 @@ class CliRunner:
             registry: {data_path / "registry.db"}
             provider: local
             online_store:
-                local:
-                    path: {data_path / "online_store.db"}
+                path: {data_path / "online_store.db"}
             """
                 )
             )
@@ -58,10 +57,10 @@ class CliRunner:
             repo_example = repo_path / "example.py"
             repo_example.write_text(example_repo_py)
 
-            result = self.run(["apply", str(repo_path)], cwd=repo_path)
+            result = self.run(["apply"], cwd=repo_path)
             assert result.returncode == 0
 
             yield FeatureStore(repo_path=str(repo_path), config=None)
 
-            result = self.run(["teardown", str(repo_path)], cwd=repo_path)
+            result = self.run(["teardown"], cwd=repo_path)
             assert result.returncode == 0

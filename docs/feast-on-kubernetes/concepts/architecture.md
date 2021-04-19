@@ -1,6 +1,8 @@
 # Architecture
 
-![](../../.gitbook/assets/image%20%286%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29.png)
+
+
+![](../../.gitbook/assets/image%20%286%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%283%29%20%282%29%20%281%29%20%283%29.png)
 
 ## Sequence description
 
@@ -23,7 +25,6 @@
 {% hint style="warning" %}
 Limitations
 
-* Feast 0.8 has no offline store. Batch retrieval is direct from source. We plan to implement an optional offline store in Feast 0.9
 * Only Redis is supported for online storage.
 * Batch ingestion jobs must be triggered from your own scheduler like Airflow. Streaming ingestion jobs are automatically launched by the Feast Job Service.
 {% endhint %}
