@@ -1,6 +1,4 @@
 project: my_project
-registry: data/registry.db
+registry: s3://feast-provectus-demo/data/registry.db
 provider: aws_dynamo
-offline_store:
-  path: s3://test-bucket/data/
 online_store:
