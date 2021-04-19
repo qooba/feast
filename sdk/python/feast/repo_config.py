@@ -33,8 +33,13 @@ class DatastoreOnlineStoreConfig(FeastBaseModel):
     project_id: Optional[StrictStr] = None
     """ (optional) GCP Project Id """
 
+class DynamoOnlineStoreConfig(FeastBaseModel):
+    """Online store config for DynamoDB store"""
+    type: Literal["dynamo"] = "dynamo"
+    """Online store type selector"""
+    project_id: Optional[StrictStr] = None
 
-OnlineStoreConfig = Union[DatastoreOnlineStoreConfig, SqliteOnlineStoreConfig]
+OnlineStoreConfig = Union[DatastoreOnlineStoreConfig, SqliteOnlineStoreConfig, DynamoOnlineStoreConfig]
 
 
 class RegistryConfig(FeastBaseModel):
@@ -63,7 +68,7 @@ class RepoConfig(FeastBaseModel):
     """
 
     provider: StrictStr
-    """ str: local or gcp """
+    """ str: local or gcp or aws_dynamo """
 
     online_store: OnlineStoreConfig = SqliteOnlineStoreConfig()
     """ OnlineStoreConfig: Online store configuration (optional depending on provider) """
@@ -102,18 +107,21 @@ class RepoConfig(FeastBaseModel):
                     values["online_store"]["type"] = "datastore"
                 elif values["provider"] == "aws_dynamo":
                     values["online_store"]["type"] = "datastore"
-
+                elif values["provider"] == "aws_dynamo":
+                    values["online_store"]["type"] = "dynamo"
             online_store_type = values["online_store"]["type"]
-
             # Make sure the user hasn't provided the wrong type
-            assert online_store_type in ["datastore", "sqlite"]
+            assert online_store_type in ["datastore", "sqlite", "dynamo"]
 
             # Validate the dict to ensure one of the union types match
             try:
                 if online_store_type == "sqlite":
                     SqliteOnlineStoreConfig(**values["online_store"])
-                elif values["online_store"]["type"] == "datastore":
+                elif online_store_type == "datastore":
                     DatastoreOnlineStoreConfig(**values["online_store"])
+                elif online_store_type == "dynamo":
+                    print("govno")
+                    DynamoOnlineStoreConfig(**values["online_store"])
                 else:
                     raise ValidationError(
                         f"Invalid online store type {online_store_type}"
