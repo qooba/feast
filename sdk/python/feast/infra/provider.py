@@ -129,7 +129,7 @@ def get_provider(config: RepoConfig) -> Provider:
         return GcpProvider(config)
     elif config.provider == "aws_dynamo":
         from feast.infra.aws_dynamo_provider import AwsDynamoProvider
-        return AwsProvider(config)
+        return AwsDynamoProvider(config)
     elif config.provider == "local":
         from feast.infra.local import LocalProvider
 
