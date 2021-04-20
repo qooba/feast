@@ -57,7 +57,7 @@ class Registry:
         if uri.scheme == "gs":
             self._registry_store: RegistryStore = GCSRegistryStore(registry_path)
         elif uri.scheme == "s3":
-            self._registry_store: RegistryStore = AwsS3RegistryStore(registry_path)
+            self._registry_store = AwsS3RegistryStore(registry_path)
         elif uri.scheme == "file" or uri.scheme == "":
             self._registry_store = LocalRegistryStore(registry_path)
         else:
@@ -483,13 +483,6 @@ class GCSRegistryStore(RegistryStore):
 
 class AwsS3RegistryStore(RegistryStore):
     def __init__(self, uri: str):
-        try:
-           import boto3
-        except ImportError:
-            raise ImportError(
-                "Install package boto3==1.17.* for gcs support"
-                "run ```pip install boto3==1.17.*```"
-            )
         self._uri = urlparse(uri)
         self._bucket = self._uri.hostname
         self._key = self._uri.path.lstrip("/")

@@ -1,12 +1,10 @@
-import boto3
-from botocore.exceptions import ClientError
-import itertools
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+import boto3
 import mmh3
 import pandas
-import pyarrow
+from botocore.exceptions import ClientError
 
 from feast import FeatureTable, utils
 from feast.feature_view import FeatureView
@@ -25,22 +23,18 @@ from feast.registry import Registry
 from feast.repo_config import DatastoreOnlineStoreConfig, RepoConfig
 
 
-
 class AwsDynamoProvider(Provider):
     _aws_project_id: Optional[str]
 
-    def __init__(self, config: Optional[RepoConfig]):
+    def __init__(self, config: RepoConfig):
+        assert isinstance(config.online_store, DatastoreOnlineStoreConfig)
         if config and config.online_store and config.online_store.project_id:
             self._aws_project_id = config.online_store.project_id
         else:
             self._aws_project_id = None
 
-#     def _initialize_client(self):
-#         return boto3.client('dynamodb') 
-    
     def _initialize_dynamodb(self):
-        return boto3.resource('dynamodb') 
-    
+        return boto3.resource('dynamodb')
 
     def update_infra(
             self,
@@ -87,16 +81,16 @@ class AwsDynamoProvider(Provider):
                 print(ce)
                 if ce.response['Error']['Code'] == 'ResourceNotFoundException':
                     table = dynamodb.Table(table_name.name)
-                
-#             table.update_item(
-#                 Key={
-#                     "Project": project
-#                 },
-#                 UpdateExpression='SET created_ts = :val1',
-#                 ExpressionAttributeValues={
-#                     ':val1': datetime.utcnow().strftime("")
-#                 }
-#             )
+
+        #             table.update_item(
+        #                 Key={
+        #                     "Project": project
+        #                 },
+        #                 UpdateExpression='SET created_ts = :val1',
+        #                 ExpressionAttributeValues={
+        #                     ':val1': datetime.utcnow().strftime("")
+        #                 }
+        #             )
 
         for table_name in tables_to_delete:
             table = dynamodb.Table(table_name.name)
@@ -125,16 +119,16 @@ class AwsDynamoProvider(Provider):
         table_instance = dynamodb.Table(table.name)
         with table_instance.batch_writer() as batch:
             for entity_key, features, timestamp, created_ts in data:
-                document_id = compute_datastore_entity_id(entity_key) #TODO check id
-                #TODO compression encoding
+                document_id = compute_datastore_entity_id(entity_key)  # TODO check id
+                # TODO compression encoding
                 batch.put_item(
                     Item={
-                        "Row": document_id, #PartitionKey
-                        "Project": project, #SortKey
+                        "Row": document_id,  # PartitionKey
+                        "Project": project,  # SortKey
                         "event_ts": str(utils.make_tzaware(timestamp)),
                         "values": {
-                                   k: v.SerializeToString() for k, v in features.items() #Serialized Features
-                               },
+                            k: v.SerializeToString() for k, v in features.items()  # Serialized Features
+                        },
                     }
                 )
 
@@ -149,7 +143,7 @@ class AwsDynamoProvider(Provider):
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
         for entity_key in entity_keys:
             table_instace = dynamodb.Table(table.name)
-            document_id = compute_datastore_entity_id(entity_key) #TODO check id
+            document_id = compute_datastore_entity_id(entity_key)  # TODO check id
             print("entity")
             print(entity_key)
             print("id")
@@ -174,14 +168,13 @@ class AwsDynamoProvider(Provider):
                 result.append((None, None))
         return result
 
-
     def materialize_single_feature_view(
-        self,
-        feature_view: FeatureView,
-        start_date: datetime,
-        end_date: datetime,
-        registry: Registry,
-        project: str,
+            self,
+            feature_view: FeatureView,
+            start_date: datetime,
+            end_date: datetime,
+            registry: Registry,
+            project: str,
     ) -> None:
         entities = []
         for entity_name in feature_view.entities:
@@ -219,7 +212,6 @@ class AwsDynamoProvider(Provider):
         feature_view.materialization_intervals.append((start_date, end_date))
         registry.apply_feature_view(feature_view, project)
 
-
     @staticmethod
     def get_historical_features(
             config: RepoConfig,
@@ -229,8 +221,9 @@ class AwsDynamoProvider(Provider):
             registry: Registry,
             project: str,
     ) -> RetrievalJob:
-        #TODO implement me
+        # TODO implement me
         pass
+
 
 def compute_datastore_entity_id(entity_key: EntityKeyProto) -> str:
     """

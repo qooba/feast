@@ -33,11 +33,13 @@ class DatastoreOnlineStoreConfig(FeastBaseModel):
     project_id: Optional[StrictStr] = None
     """ (optional) GCP Project Id """
 
+
 class DynamoOnlineStoreConfig(FeastBaseModel):
     """Online store config for DynamoDB store"""
     type: Literal["dynamo"] = "dynamo"
     """Online store type selector"""
     project_id: Optional[StrictStr] = None
+
 
 OnlineStoreConfig = Union[DatastoreOnlineStoreConfig, SqliteOnlineStoreConfig, DynamoOnlineStoreConfig]
 
