@@ -1,4 +1,5 @@
 import boto3
+from botocore.exceptions import ClientError
 import itertools
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
@@ -24,6 +25,7 @@ from feast.registry import Registry
 from feast.repo_config import DatastoreOnlineStoreConfig, RepoConfig
 
 
+
 class AwsDynamoProvider(Provider):
     _aws_project_id: Optional[str]
 
@@ -33,10 +35,12 @@ class AwsDynamoProvider(Provider):
         else:
             self._aws_project_id = None
 
-    def _initialize_client(self):
-        client = boto3.client('dynamodb')
-        return client
-
+#     def _initialize_client(self):
+#         return boto3.client('dynamodb') 
+    
+    def _initialize_dynamodb(self):
+        return boto3.resource('dynamodb') 
+    
 
     def update_infra(
             self,
@@ -45,32 +49,66 @@ class AwsDynamoProvider(Provider):
             tables_to_keep: Sequence[Union[FeatureTable, FeatureView]],
             partial: bool,
     ):
-        client = self._initialize_client()
+        dynamodb = self._initialize_dynamodb()
 
         for table_name in tables_to_keep:
             # TODO: add table creation to dynamo.
-            table = client.Table(table_name.name)
-            table.update_item(
-                Key={
-                    "Project": project
-                },
-                UpdateExpression='SET created_ts = :val1',
-                ExpressionAttributeValues={
-                    ':val1': datetime.utcnow()
-                }
-            )
+            table = None
+            try:
+                table = dynamodb.create_table(
+                    TableName=table_name.name,
+                    KeySchema=[
+                        {
+                            'AttributeName': 'Row',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'Project',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    AttributeDefinitions=[
+                        {
+                            'AttributeName': 'Row',
+                            'AttributeType': 'S'
+                        },
+                        {
+                            'AttributeName': 'Project',
+                            'AttributeType': 'S'
+                        },
+                    ],
+                    ProvisionedThroughput={
+                        'ReadCapacityUnits': 5,
+                        'WriteCapacityUnits': 5
+                    }
+                )
+                table.meta.client.get_waiter('table_exists').wait(TableName=table_name.name)
+            except ClientError as ce:
+                print(ce)
+                if ce.response['Error']['Code'] == 'ResourceNotFoundException':
+                    table = dynamodb.Table(table_name.name)
+                
+#             table.update_item(
+#                 Key={
+#                     "Project": project
+#                 },
+#                 UpdateExpression='SET created_ts = :val1',
+#                 ExpressionAttributeValues={
+#                     ':val1': datetime.utcnow().strftime("")
+#                 }
+#             )
 
         for table_name in tables_to_delete:
-            table = client.Table(table_name.name)
+            table = dynamodb.Table(table_name.name)
             table.delete()
 
     def teardown_infra(
             self, project: str, tables: Sequence[Union[FeatureTable, FeatureView]]
     ) -> None:
-        client = self._initialize_client()
+        dynamodb = self._initialize_dynamodb()
 
         for table_name in tables:
-            table = client.Table(table_name)
+            table = dynamodb.Table(table_name)
             table.delete()
 
     def online_write_batch(
@@ -82,9 +120,9 @@ class AwsDynamoProvider(Provider):
             ],
             progress: Optional[Callable[[int], Any]],
     ) -> None:
-        client = self._initialize_client()
+        dynamodb = self._initialize_dynamodb()
 
-        table_instance = client.Table(table.name)
+        table_instance = dynamodb.Table(table.name)
         with table_instance.batch_writer() as batch:
             for entity_key, features, timestamp, created_ts in data:
                 document_id = compute_datastore_entity_id(entity_key) #TODO check id
@@ -94,7 +132,6 @@ class AwsDynamoProvider(Provider):
                         "Row": document_id, #PartitionKey
                         "Project": project, #SortKey
                         "event_ts": utils.make_tzaware(timestamp),
-                        "created_ts": utils.make_tzaware(created_ts),
                         "values": {
                                    k: v.SerializeToString() for k, v in features.items() #Serialized Features
                                },
@@ -107,18 +144,23 @@ class AwsDynamoProvider(Provider):
             table: Union[FeatureTable, FeatureView],
             entity_keys: List[EntityKeyProto],
     ) -> List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]]:
-        client = self._initialize_client()
+        dynamodb = self._initialize_dynamodb()
 
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
         for entity_key in entity_keys:
-            table_instace = client.Table(table.name)
+            table_instace = dynamodb.Table(table.name)
             document_id = compute_datastore_entity_id(entity_key) #TODO check id
+            print("entity")
+            print(entity_key)
+            print("id")
+            print(document_id)
             response = table_instace.get_item(
                 Key={
                     "Row": document_id,
                     "Project": project
                 }
             )
+            print(response)
             value = response['Item']
 
             if value is not None:
