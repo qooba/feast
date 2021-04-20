@@ -56,6 +56,8 @@ class Registry:
         uri = urlparse(registry_path)
         if uri.scheme == "gs":
             self._registry_store: RegistryStore = GCSRegistryStore(registry_path)
+        elif uri.scheme == "s3":
+            self._registry_store: RegistryStore = AwsS3RegistryStore(registry_path)
         elif uri.scheme == "file" or uri.scheme == "":
             self._registry_store = LocalRegistryStore(registry_path)
         else:
@@ -476,4 +478,79 @@ class GCSRegistryStore(RegistryStore):
         file_obj.write(registry_proto.SerializeToString())
         file_obj.seek(0)
         blob.upload_from_file(file_obj)
+        return
+
+
+class AwsS3RegistryStore(RegistryStore):
+    def __init__(self, uri: str):
+        try:
+           import boto3
+        except ImportError:
+            raise ImportError(
+                "Install package boto3==1.17.* for gcs support"
+                "run ```pip install boto3==1.17.*```"
+            )
+        self._uri = urlparse(uri)
+        self._bucket = self._uri.hostname
+        self._key = self._uri.path.lstrip("/")
+        return
+
+    def get_registry_proto(self):
+        import boto3
+        import botocore
+
+        file_obj = TemporaryFile()
+        registry_proto = RegistryProto()
+        s3 = boto3.resource('s3')
+        try:
+            bucket = s3.Bucket(self._bucket)
+            s3.meta.client.head_bucket(Bucket=bucket.name)
+        except botocore.client.ClientError as e:
+            # If a client error is thrown, then check that it was a 404 error.
+            # If it was a 404 error, then the bucket does not exist.
+            error_code = int(e.response['Error']['Code'])
+            if error_code == 404:
+                raise Exception(
+                    f"No bucket named {self._bucket} exists; please create it first."
+                )
+            else:
+                raise Exception(f'Private Registry Bucket {self._bucket}. Forbidden Access!')
+
+        try:
+            obj = bucket.Object(self._key)
+            obj.download_fileobj(file_obj)
+            file_obj.seek(0)
+            registry_proto.ParseFromString(file_obj.read())
+            return registry_proto
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == "404":
+                raise FileNotFoundError(
+                    f'Registry not found at path "{self._uri.geturl()}". Have you run "feast apply"?'
+                )
+            else:
+                raise FileNotFoundError(
+                    f'Registry is not able to locate data under path "{self._uri.geturl()}" with [original error]: {e.response}'
+                )
+
+    def update_registry_proto(self, updater: Callable[[RegistryProto], RegistryProto]):
+        try:
+            registry_proto = self.get_registry_proto()
+        except FileNotFoundError:
+            registry_proto = RegistryProto()
+            registry_proto.registry_schema_version = REGISTRY_SCHEMA_VERSION
+        registry_proto = updater(registry_proto)
+        self._write_registry(registry_proto)
+        return
+
+    def _write_registry(self, registry_proto: RegistryProto):
+        import boto3
+        registry_proto.version_id = str(uuid.uuid4())
+        registry_proto.last_updated.FromDatetime(datetime.utcnow())
+        # we have already checked the bucket exists so no need to do it again
+        registry_bucket = boto3.resource('s3').Bucket(self._bucket)
+        registry_db = registry_bucket.Object(self._key)
+        file_obj = TemporaryFile()
+        file_obj.write(registry_proto.SerializeToString())
+        file_obj.seek(0)
+        registry_db.upload_fileobj(file_obj)
         return

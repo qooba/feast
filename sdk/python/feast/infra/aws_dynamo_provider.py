@@ -27,9 +27,9 @@ from feast.repo_config import DatastoreOnlineStoreConfig, RepoConfig
 class AwsDynamoProvider(Provider):
     _aws_project_id: Optional[str]
 
-    def __init__(self, config: Optional[DatastoreOnlineStoreConfig]):
-        if config:
-            self._aws_project_id = config.project_id
+    def __init__(self, config: Optional[RepoConfig]):
+        if config and config.online_store and config.online_store.project_id:
+            self._aws_project_id = config.online_store.project_id
         else:
             self._aws_project_id = None
 
@@ -48,6 +48,7 @@ class AwsDynamoProvider(Provider):
         client = self._initialize_client()
 
         for table_name in tables_to_keep:
+            # TODO: add table creation to dynamo.
             table = client.Table(table_name.name)
             table.update_item(
                 Key={
