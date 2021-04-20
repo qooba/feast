@@ -131,7 +131,7 @@ class AwsDynamoProvider(Provider):
                     Item={
                         "Row": document_id, #PartitionKey
                         "Project": project, #SortKey
-                        "event_ts": utils.make_tzaware(timestamp),
+                        "event_ts": str(utils.make_tzaware(timestamp)),
                         "values": {
                                    k: v.SerializeToString() for k, v in features.items() #Serialized Features
                                },
@@ -167,7 +167,7 @@ class AwsDynamoProvider(Provider):
                 res = {}
                 for feature_name, value_bin in value["values"].items():
                     val = ValueProto()
-                    val.ParseFromString(value_bin)
+                    val.ParseFromString(value_bin.value)
                     res[feature_name] = val
                 result.append((value["event_ts"], res))
             else:
@@ -176,15 +176,48 @@ class AwsDynamoProvider(Provider):
 
 
     def materialize_single_feature_view(
-            self,
-            feature_view: FeatureView,
-            start_date: datetime,
-            end_date: datetime,
-            registry: Registry,
-            project: str,
+        self,
+        feature_view: FeatureView,
+        start_date: datetime,
+        end_date: datetime,
+        registry: Registry,
+        project: str,
     ) -> None:
-        #TODO implement me
-        pass
+        entities = []
+        for entity_name in feature_view.entities:
+            entities.append(registry.get_entity(entity_name, project))
+
+        (
+            join_key_columns,
+            feature_name_columns,
+            event_timestamp_column,
+            created_timestamp_column,
+        ) = _get_column_names(feature_view, entities)
+
+        start_date = utils.make_tzaware(start_date)
+        end_date = utils.make_tzaware(end_date)
+
+        offline_store = get_offline_store_from_sources([feature_view.input])
+        table = offline_store.pull_latest_from_table_or_query(
+            data_source=feature_view.input,
+            join_key_columns=join_key_columns,
+            feature_name_columns=feature_name_columns,
+            event_timestamp_column=event_timestamp_column,
+            created_timestamp_column=created_timestamp_column,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        if feature_view.input.field_mapping is not None:
+            table = _run_field_mapping(table, feature_view.input.field_mapping)
+
+        join_keys = [entity.join_key for entity in entities]
+        rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
+
+        self.online_write_batch(project, feature_view, rows_to_write, None)
+
+        feature_view.materialization_intervals.append((start_date, end_date))
+        registry.apply_feature_view(feature_view, project)
 
 
     @staticmethod
