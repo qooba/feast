@@ -120,7 +120,6 @@ class RepoConfig(FeastBaseModel):
                 elif online_store_type == "datastore":
                     DatastoreOnlineStoreConfig(**values["online_store"])
                 elif online_store_type == "dynamo":
-                    print("govno")
                     DynamoOnlineStoreConfig(**values["online_store"])
                 else:
                     raise ValidationError(
