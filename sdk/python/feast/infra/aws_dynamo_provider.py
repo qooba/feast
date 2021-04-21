@@ -20,14 +20,14 @@ from feast.infra.provider import (
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.registry import Registry
-from feast.repo_config import DatastoreOnlineStoreConfig, RepoConfig
+from feast.repo_config import DynamoOnlineStoreConfig, RepoConfig
 
 
 class AwsDynamoProvider(Provider):
     _aws_project_id: Optional[str]
 
     def __init__(self, config: RepoConfig):
-        assert isinstance(config.online_store, DatastoreOnlineStoreConfig)
+        assert isinstance(config.online_store, DynamoOnlineStoreConfig)
         if config and config.online_store and config.online_store.project_id:
             self._aws_project_id = config.online_store.project_id
         else:
