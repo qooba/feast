@@ -545,8 +545,8 @@ class AwsS3RegistryStore(RegistryStore):
         file_obj.seek(0)
         s3 = boto3.client('s3')
         s3.put_object(
-                Bucket=self._bucket,
-                Body=file_obj,
-                Key=self._key
-            )
+            Bucket=self._bucket,
+            Body=file_obj,
+            Key=self._key
+        )
         return

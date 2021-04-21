@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pandas as pd
 from driver_example import driver, driver_hourly_stats_view

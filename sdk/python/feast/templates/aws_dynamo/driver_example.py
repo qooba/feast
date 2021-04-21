@@ -34,5 +34,3 @@ driver_hourly_stats_view = FeatureView(
     input=driver_hourly_stats,
     tags={},
 )
-
-
