@@ -540,10 +540,13 @@ class AwsS3RegistryStore(RegistryStore):
         registry_proto.version_id = str(uuid.uuid4())
         registry_proto.last_updated.FromDatetime(datetime.utcnow())
         # we have already checked the bucket exists so no need to do it again
-        registry_bucket = boto3.resource('s3').Bucket(self._bucket)
-        registry_db = registry_bucket.Object(self._key)
         file_obj = TemporaryFile()
         file_obj.write(registry_proto.SerializeToString())
         file_obj.seek(0)
-        registry_db.upload_fileobj(file_obj)
+        s3 = boto3.client('s3')
+        s3.put_object(
+                Bucket=self._bucket,
+                Body=file_obj,
+                Key=self._key
+            )
         return
