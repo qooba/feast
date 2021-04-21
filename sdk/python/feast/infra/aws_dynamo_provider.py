@@ -28,10 +28,6 @@ class AwsDynamoProvider(Provider):
 
     def __init__(self, config: RepoConfig):
         assert isinstance(config.online_store, DynamoOnlineStoreConfig)
-        if config and config.online_store and config.online_store.project_id:
-            self._aws_project_id = config.online_store.project_id
-        else:
-            self._aws_project_id = None
 
     def _initialize_dynamodb(self):
         return boto3.resource('dynamodb')
