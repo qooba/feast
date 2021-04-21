@@ -46,7 +46,6 @@ class AwsDynamoProvider(Provider):
         dynamodb = self._initialize_dynamodb()
 
         for table_name in tables_to_keep:
-            # TODO: add table creation to dynamo.
             table = None
             try:
                 table = dynamodb.create_table(
@@ -81,16 +80,6 @@ class AwsDynamoProvider(Provider):
                 print(ce)
                 if ce.response['Error']['Code'] == 'ResourceNotFoundException':
                     table = dynamodb.Table(table_name.name)
-
-        #             table.update_item(
-        #                 Key={
-        #                     "Project": project
-        #                 },
-        #                 UpdateExpression='SET created_ts = :val1',
-        #                 ExpressionAttributeValues={
-        #                     ':val1': datetime.utcnow().strftime("")
-        #                 }
-        #             )
 
         for table_name in tables_to_delete:
             table = dynamodb.Table(table_name.name)
@@ -144,17 +133,12 @@ class AwsDynamoProvider(Provider):
         for entity_key in entity_keys:
             table_instace = dynamodb.Table(table.name)
             document_id = compute_datastore_entity_id(entity_key)  # TODO check id
-            print("entity")
-            print(entity_key)
-            print("id")
-            print(document_id)
             response = table_instace.get_item(
                 Key={
                     "Row": document_id,
                     "Project": project
                 }
             )
-            print(response)
             value = response['Item']
 
             if value is not None:

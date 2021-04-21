@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 import pandas as pd
-from drivers_example import driver, driver_hourly_stats_view
+from driver_example import driver, driver_hourly_stats_view
 
 from feast import FeatureStore
 
@@ -19,31 +19,6 @@ def main():
 
     # Select features
     feature_refs = ["driver_hourly_stats:conv_rate", "driver_hourly_stats:acc_rate"]
-
-    #     # Create an entity dataframe. This is the dataframe that will be enriched with historical features
-    #     entity_df = pd.DataFrame(
-    #         {
-    #             "event_timestamp": [
-    #                 pd.Timestamp(dt, unit="ms", tz="UTC").round("ms")
-    #                 for dt in pd.date_range(
-    #                     start=datetime.now() - timedelta(days=3),
-    #                     end=datetime.now(),
-    #                     periods=3,
-    #                 )
-    #             ],
-    #             "driver_id": [1001, 1002, 1003],
-    #         }
-    #     )
-
-    #     print("Retrieving training data...")
-
-    #     # Retrieve historical features by joining the entity dataframe to the BigQuery table source
-    #     training_df = fs.get_historical_features(
-    #         feature_refs=feature_refs, entity_df=entity_df
-    #     ).to_df()
-
-    #     print()
-    #     print(training_df)
 
     #     print()
     print("Loading features into the online store...")
