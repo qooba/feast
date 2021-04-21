@@ -25,6 +25,8 @@ from feast.errors import (
     EntityNotFoundException,
     FeatureTableNotFoundException,
     FeatureViewNotFoundException,
+    FeatureBucketNotExist,
+    FeatureBucketForbiddenAccess
 )
 from feast.feature_table import FeatureTable
 from feast.feature_view import FeatureView
@@ -521,13 +523,9 @@ class AwsS3RegistryStore(RegistryStore):
             # If it was a 404 error, then the bucket does not exist.
             error_code = int(e.response["Error"]["Code"])
             if error_code == 404:
-                raise Exception(
-                    f"No bucket named {self._bucket} exists; please create it first."
-                )
+                raise FeatureBucketNotExist(self._bucket)
             else:
-                raise Exception(
-                    f"Private Registry Bucket {self._bucket}. Forbidden Access!"
-                )
+                raise FeatureBucketForbiddenAccess(self._bucket)
 
         try:
             obj = bucket.Object(self._key)
