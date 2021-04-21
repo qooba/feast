@@ -23,10 +23,10 @@ from urllib.parse import urlparse
 from feast.entity import Entity
 from feast.errors import (
     EntityNotFoundException,
+    FeatureBucketForbiddenAccess,
+    FeatureBucketNotExist,
     FeatureTableNotFoundException,
     FeatureViewNotFoundException,
-    FeatureBucketNotExist,
-    FeatureBucketForbiddenAccess
 )
 from feast.feature_table import FeatureTable
 from feast.feature_view import FeatureView
@@ -543,13 +543,16 @@ class AwsS3RegistryStore(RegistryStore):
                     f'Registry is not able to locate data under path "{self._uri.geturl()}" with [original error]: {e.response}'
                 )
 
-    def update_registry_proto(self, updater: Callable[[RegistryProto], RegistryProto]):
+    def update_registry_proto(
+        self, updater: Optional[Callable[[RegistryProto], RegistryProto]] = None
+    ):
         try:
             registry_proto = self.get_registry_proto()
         except FileNotFoundError:
             registry_proto = RegistryProto()
             registry_proto.registry_schema_version = REGISTRY_SCHEMA_VERSION
-        registry_proto = updater(registry_proto)
+        if updater:
+            registry_proto = updater(registry_proto)
         self._write_registry(registry_proto)
         return
 
