@@ -23,7 +23,7 @@ from feast.registry import Registry
 from feast.repo_config import DynamoOnlineStoreConfig, RepoConfig
 
 
-class AwsDynamoProvider(Provider):
+class AwsDynamodbProvider(Provider):
     def __init__(self, config: RepoConfig):
         assert isinstance(config.online_store, DynamoOnlineStoreConfig)
 
