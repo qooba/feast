@@ -24,7 +24,6 @@ from feast.repo_config import DynamoOnlineStoreConfig, RepoConfig
 
 
 class AwsDynamoProvider(Provider):
-    _aws_project_id: Optional[str]
 
     def __init__(self, config: RepoConfig):
         assert isinstance(config.online_store, DynamoOnlineStoreConfig)
