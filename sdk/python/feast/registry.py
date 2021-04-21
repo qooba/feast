@@ -494,20 +494,22 @@ class AwsS3RegistryStore(RegistryStore):
 
         file_obj = TemporaryFile()
         registry_proto = RegistryProto()
-        s3 = boto3.resource('s3')
+        s3 = boto3.resource("s3")
         try:
             bucket = s3.Bucket(self._bucket)
             s3.meta.client.head_bucket(Bucket=bucket.name)
         except botocore.client.ClientError as e:
             # If a client error is thrown, then check that it was a 404 error.
             # If it was a 404 error, then the bucket does not exist.
-            error_code = int(e.response['Error']['Code'])
+            error_code = int(e.response["Error"]["Code"])
             if error_code == 404:
                 raise Exception(
                     f"No bucket named {self._bucket} exists; please create it first."
                 )
             else:
-                raise Exception(f'Private Registry Bucket {self._bucket}. Forbidden Access!')
+                raise Exception(
+                    f"Private Registry Bucket {self._bucket}. Forbidden Access!"
+                )
 
         try:
             obj = bucket.Object(self._key)
@@ -516,7 +518,7 @@ class AwsS3RegistryStore(RegistryStore):
             registry_proto.ParseFromString(file_obj.read())
             return registry_proto
         except botocore.exceptions.ClientError as e:
-            if e.response['Error']['Code'] == "404":
+            if e.response["Error"]["Code"] == "404":
                 raise FileNotFoundError(
                     f'Registry not found at path "{self._uri.geturl()}". Have you run "feast apply"?'
                 )
@@ -537,16 +539,13 @@ class AwsS3RegistryStore(RegistryStore):
 
     def _write_registry(self, registry_proto: RegistryProto):
         import boto3
+
         registry_proto.version_id = str(uuid.uuid4())
         registry_proto.last_updated.FromDatetime(datetime.utcnow())
         # we have already checked the bucket exists so no need to do it again
         file_obj = TemporaryFile()
         file_obj.write(registry_proto.SerializeToString())
         file_obj.seek(0)
-        s3 = boto3.client('s3')
-        s3.put_object(
-            Bucket=self._bucket,
-            Body=file_obj,
-            Key=self._key
-        )
+        s3 = boto3.client("s3")
+        s3.put_object(Bucket=self._bucket, Body=file_obj, Key=self._key)
         return

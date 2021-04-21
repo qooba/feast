@@ -24,19 +24,18 @@ from feast.repo_config import DynamoOnlineStoreConfig, RepoConfig
 
 
 class AwsDynamoProvider(Provider):
-
     def __init__(self, config: RepoConfig):
         assert isinstance(config.online_store, DynamoOnlineStoreConfig)
 
     def _initialize_dynamodb(self):
-        return boto3.resource('dynamodb')
+        return boto3.resource("dynamodb")
 
     def update_infra(
-            self,
-            project: str,
-            tables_to_delete: Sequence[Union[FeatureTable, FeatureView]],
-            tables_to_keep: Sequence[Union[FeatureTable, FeatureView]],
-            partial: bool,
+        self,
+        project: str,
+        tables_to_delete: Sequence[Union[FeatureTable, FeatureView]],
+        tables_to_keep: Sequence[Union[FeatureTable, FeatureView]],
+        partial: bool,
     ):
         dynamodb = self._initialize_dynamodb()
 
@@ -46,34 +45,24 @@ class AwsDynamoProvider(Provider):
                 table = dynamodb.create_table(
                     TableName=table_name.name,
                     KeySchema=[
-                        {
-                            'AttributeName': 'Row',
-                            'KeyType': 'HASH'
-                        },
-                        {
-                            'AttributeName': 'Project',
-                            'KeyType': 'RANGE'
-                        }
+                        {"AttributeName": "Row", "KeyType": "HASH"},
+                        {"AttributeName": "Project", "KeyType": "RANGE"},
                     ],
                     AttributeDefinitions=[
-                        {
-                            'AttributeName': 'Row',
-                            'AttributeType': 'S'
-                        },
-                        {
-                            'AttributeName': 'Project',
-                            'AttributeType': 'S'
-                        },
+                        {"AttributeName": "Row", "AttributeType": "S"},
+                        {"AttributeName": "Project", "AttributeType": "S"},
                     ],
                     ProvisionedThroughput={
-                        'ReadCapacityUnits': 5,
-                        'WriteCapacityUnits': 5
-                    }
+                        "ReadCapacityUnits": 5,
+                        "WriteCapacityUnits": 5,
+                    },
                 )
-                table.meta.client.get_waiter('table_exists').wait(TableName=table_name.name)
+                table.meta.client.get_waiter("table_exists").wait(
+                    TableName=table_name.name
+                )
             except ClientError as ce:
                 print(ce)
-                if ce.response['Error']['Code'] == 'ResourceNotFoundException':
+                if ce.response["Error"]["Code"] == "ResourceNotFoundException":
                     table = dynamodb.Table(table_name.name)
 
         for table_name in tables_to_delete:
@@ -81,7 +70,7 @@ class AwsDynamoProvider(Provider):
             table.delete()
 
     def teardown_infra(
-            self, project: str, tables: Sequence[Union[FeatureTable, FeatureView]]
+        self, project: str, tables: Sequence[Union[FeatureTable, FeatureView]]
     ) -> None:
         dynamodb = self._initialize_dynamodb()
 
@@ -90,13 +79,13 @@ class AwsDynamoProvider(Provider):
             table.delete()
 
     def online_write_batch(
-            self,
-            project: str,
-            table: Union[FeatureTable, FeatureView],
-            data: List[
-                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-            ],
-            progress: Optional[Callable[[int], Any]],
+        self,
+        project: str,
+        table: Union[FeatureTable, FeatureView],
+        data: List[
+            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+        ],
+        progress: Optional[Callable[[int], Any]],
     ) -> None:
         dynamodb = self._initialize_dynamodb()
 
@@ -111,16 +100,17 @@ class AwsDynamoProvider(Provider):
                         "Project": project,  # SortKey
                         "event_ts": str(utils.make_tzaware(timestamp)),
                         "values": {
-                            k: v.SerializeToString() for k, v in features.items()  # Serialized Features
+                            k: v.SerializeToString()
+                            for k, v in features.items()  # Serialized Features
                         },
                     }
                 )
 
     def online_read(
-            self,
-            project: str,
-            table: Union[FeatureTable, FeatureView],
-            entity_keys: List[EntityKeyProto],
+        self,
+        project: str,
+        table: Union[FeatureTable, FeatureView],
+        entity_keys: List[EntityKeyProto],
     ) -> List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]]:
         dynamodb = self._initialize_dynamodb()
 
@@ -129,12 +119,9 @@ class AwsDynamoProvider(Provider):
             table_instace = dynamodb.Table(table.name)
             document_id = compute_datastore_entity_id(entity_key)  # TODO check id
             response = table_instace.get_item(
-                Key={
-                    "Row": document_id,
-                    "Project": project
-                }
+                Key={"Row": document_id, "Project": project}
             )
-            value = response['Item']
+            value = response["Item"]
 
             if value is not None:
                 res = {}
@@ -148,12 +135,12 @@ class AwsDynamoProvider(Provider):
         return result
 
     def materialize_single_feature_view(
-            self,
-            feature_view: FeatureView,
-            start_date: datetime,
-            end_date: datetime,
-            registry: Registry,
-            project: str,
+        self,
+        feature_view: FeatureView,
+        start_date: datetime,
+        end_date: datetime,
+        registry: Registry,
+        project: str,
     ) -> None:
         entities = []
         for entity_name in feature_view.entities:
@@ -193,12 +180,12 @@ class AwsDynamoProvider(Provider):
 
     @staticmethod
     def get_historical_features(
-            config: RepoConfig,
-            feature_views: List[FeatureView],
-            feature_refs: List[str],
-            entity_df: Union[pandas.DataFrame, str],
-            registry: Registry,
-            project: str,
+        config: RepoConfig,
+        feature_views: List[FeatureView],
+        feature_refs: List[str],
+        entity_df: Union[pandas.DataFrame, str],
+        registry: Registry,
+        project: str,
     ) -> RetrievalJob:
         # TODO implement me
         pass

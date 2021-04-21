@@ -36,11 +36,14 @@ class DatastoreOnlineStoreConfig(FeastBaseModel):
 
 class DynamoOnlineStoreConfig(FeastBaseModel):
     """Online store config for DynamoDB store"""
+
     type: Literal["dynamo"] = "dynamo"
     """Online store type selector"""
 
 
-OnlineStoreConfig = Union[DatastoreOnlineStoreConfig, SqliteOnlineStoreConfig, DynamoOnlineStoreConfig]
+OnlineStoreConfig = Union[
+    DatastoreOnlineStoreConfig, SqliteOnlineStoreConfig, DynamoOnlineStoreConfig
+]
 
 
 class RegistryConfig(FeastBaseModel):
