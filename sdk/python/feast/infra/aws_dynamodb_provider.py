@@ -20,12 +20,12 @@ from feast.infra.provider import (
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.registry import Registry
-from feast.repo_config import DynamoOnlineStoreConfig, RepoConfig
+from feast.repo_config import DynamoDbOnlineStoreConfig, RepoConfig
 
 
 class AwsDynamodbProvider(Provider):
     def __init__(self, config: RepoConfig):
-        assert isinstance(config.online_store, DynamoOnlineStoreConfig)
+        assert isinstance(config.online_store, DynamoDbOnlineStoreConfig)
 
     def _initialize_dynamodb(self):
         return boto3.resource("dynamodb")
