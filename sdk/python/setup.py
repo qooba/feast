@@ -61,7 +61,7 @@ REQUIRED = [
     "tabulate==0.8.*",
     "toml==0.10.*",
     "tqdm==4.*",
-    "boto3==1.17.54",
+    "boto3==1.17.*",
 ]
 
 CI_REQUIRED = [
