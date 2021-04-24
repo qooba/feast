@@ -7,6 +7,7 @@ import pandas
 from botocore.exceptions import ClientError
 
 from feast import FeatureTable, utils
+from feast.entity import Entity
 from feast.feature_view import FeatureView
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.offline_stores.helpers import get_offline_store_from_sources
@@ -35,6 +36,8 @@ class AwsDynamodbProvider(Provider):
         project: str,
         tables_to_delete: Sequence[Union[FeatureTable, FeatureView]],
         tables_to_keep: Sequence[Union[FeatureTable, FeatureView]],
+        entities_to_delete: Sequence[Entity],
+        entities_to_keep: Sequence[Entity],
         partial: bool,
     ):
         dynamodb = self._initialize_dynamodb()
@@ -70,7 +73,10 @@ class AwsDynamodbProvider(Provider):
             table.delete()
 
     def teardown_infra(
-        self, project: str, tables: Sequence[Union[FeatureTable, FeatureView]]
+        self,
+        project: str,
+        tables: Sequence[Union[FeatureTable, FeatureView]],
+        entities: Sequence[Entity],
     ) -> None:
         dynamodb = self._initialize_dynamodb()
 
