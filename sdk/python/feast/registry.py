@@ -59,7 +59,7 @@ class Registry:
         if uri.scheme == "gs":
             self._registry_store: RegistryStore = GCSRegistryStore(registry_path)
         elif uri.scheme == "s3":
-            self._registry_store = AwsS3RegistryStore(registry_path)
+            self._registry_store = S3RegistryStore(registry_path)
         elif uri.scheme == "file" or uri.scheme == "":
             self._registry_store = LocalRegistryStore(
                 repo_path=repo_path, registry_path_string=registry_path
@@ -501,7 +501,7 @@ class GCSRegistryStore(RegistryStore):
         return
 
 
-class AwsS3RegistryStore(RegistryStore):
+class S3RegistryStore(RegistryStore):
     def __init__(self, uri: str):
         self._uri = urlparse(uri)
         self._bucket = self._uri.hostname
