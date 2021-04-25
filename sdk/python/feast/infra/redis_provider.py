@@ -1,12 +1,12 @@
 import os
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+import mmh3
 import pandas as pd
-import pytz
-from tqdm import tqdm
+from redis import Redis
+from rediscluster import RedisCluster
 
 from feast import FeatureTable, utils
 from feast.entity import Entity
@@ -23,29 +23,26 @@ from feast.infra.provider import (
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.registry import Registry
-from feast.repo_config import RepoConfig, SqliteOnlineStoreConfig
+from feast.repo_config import RedisOnlineStoreConfig, RepoConfig
 
 
-class LocalProvider(Provider):
+class RedisProvider(Provider):
     _db_path: Path
 
-    def __init__(self, config: RepoConfig, repo_path: Path):
+    def __init__(self, config: RepoConfig):
+        assert isinstance(config.online_store, RedisOnlineStoreConfig)
 
-        assert config is not None
-        assert config.online_store is not None
-        local_online_store_config = config.online_store
-        assert isinstance(local_online_store_config, SqliteOnlineStoreConfig)
-        local_path = Path(local_online_store_config.path)
-        if local_path.is_absolute():
-            self._db_path = local_path
+    def _get_client(self):
+        if os.environ["REDIS_TYPE"] == "REDIS_CLUSTER":
+            return RedisCluster(
+                host=os.environ["REDIS_HOST"],
+                port=os.environ["REDIS_PORT"],
+                decode_responses=True,
+            )
         else:
-            self._db_path = repo_path.joinpath(local_path)
-
-    def _get_conn(self):
-        Path(self._db_path).parent.mkdir(exist_ok=True)
-        return sqlite3.connect(
-            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
-        )
+            return Redis(
+                host=os.environ["REDIS_HOST"], port=os.environ["REDIS_PORT"], db=0
+            )
 
     def update_infra(
         self,
@@ -56,17 +53,8 @@ class LocalProvider(Provider):
         entities_to_keep: Sequence[Entity],
         partial: bool,
     ):
-        conn = self._get_conn()
-        for table in tables_to_keep:
-            conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {_table_id(project, table)} (entity_key BLOB, feature_name TEXT, value BLOB, event_ts timestamp, created_ts timestamp,  PRIMARY KEY(entity_key, feature_name))"
-            )
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS {_table_id(project, table)}_ek ON {_table_id(project, table)} (entity_key);"
-            )
-
-        for table in tables_to_delete:
-            conn.execute(f"DROP TABLE IF EXISTS {_table_id(project, table)}")
+        client = self._get_client()
+        # TODO
 
     def teardown_infra(
         self,
@@ -74,7 +62,10 @@ class LocalProvider(Provider):
         tables: Sequence[Union[FeatureTable, FeatureView]],
         entities: Sequence[Entity],
     ) -> None:
-        os.unlink(self._db_path)
+        # according to the repos_operations.py we can delete the whole project
+        client = self._get_client()
+        keys = client.keys("{project}:*")
+        client.unlink(*keys)
 
     def online_write_batch(
         self,
@@ -85,47 +76,27 @@ class LocalProvider(Provider):
         ],
         progress: Optional[Callable[[int], Any]],
     ) -> None:
-        conn = self._get_conn()
+        client = self._get_client()
 
-        with conn:
-            for entity_key, values, timestamp, created_ts in data:
-                entity_key_bin = serialize_entity_key(entity_key)
-                timestamp = _to_naive_utc(timestamp)
-                if created_ts is not None:
-                    created_ts = _to_naive_utc(created_ts)
+        entity_hset = {}
+        feature_view = table.name
 
-                for feature_name, val in values.items():
-                    conn.execute(
-                        f"""
-                            UPDATE {_table_id(project, table)}
-                            SET value = ?, event_ts = ?, created_ts = ?
-                            WHERE (entity_key = ? AND feature_name = ?)
-                        """,
-                        (
-                            # SET
-                            val.SerializeToString(),
-                            timestamp,
-                            created_ts,
-                            # WHERE
-                            entity_key_bin,
-                            feature_name,
-                        ),
-                    )
+        for entity_key, values, timestamp, created_ts in data:
+            redis_key_bin = _redis_key(project, entity_key)
+            timestamp = utils.make_tzaware(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+            entity_hset[f"_ts:{feature_view}"] = timestamp
 
-                    conn.execute(
-                        f"""INSERT OR IGNORE INTO {_table_id(project, table)}
-                            (entity_key, feature_name, value, event_ts, created_ts)
-                            VALUES (?, ?, ?, ?, ?)""",
-                        (
-                            entity_key_bin,
-                            feature_name,
-                            val.SerializeToString(),
-                            timestamp,
-                            created_ts,
-                        ),
-                    )
-                if progress:
-                    progress(1)
+            if created_ts is not None:
+                created_ts = utils.make_tzaware(created_ts).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                entity_hset[f"_created_ts:{feature_view}"] = created_ts
+
+            for feature_name, val in values.items():
+                f_key = _mmh3(f"{feature_view}:{feature_name}")
+                entity_hset[f_key] = val.SerializeToString()
+
+            client.hset(redis_key_bin, mapping=entity_hset)
 
     def online_read(
         self,
@@ -135,26 +106,27 @@ class LocalProvider(Provider):
         requested_features: List[str] = None,
     ) -> List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]]:
 
-        conn = self._get_conn()
-        cur = conn.cursor()
+        client = self._get_client()
+        feature_view = table.name
 
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
 
         for entity_key in entity_keys:
-            entity_key_bin = serialize_entity_key(entity_key)
+            redis_key_bin = _redis_key(project, entity_key)
+            hset_keys = [_mmh3(f"{feature_view}:{k}") for k in requested_features]
+            ts_key = f"_ts:{feature_view}"
+            hset_keys.append(ts_key)
+            values = client.hmget(redis_key_bin, hset_keys)
 
-            cur.execute(
-                f"SELECT feature_name, value, event_ts FROM {_table_id(project, table)} WHERE entity_key = ?",
-                (entity_key_bin,),
-            )
+            requested_features.append(ts_key)
+            res_val = dict(zip(requested_features, values))
+            res_ts = res_val.pop(ts_key)
 
             res = {}
-            res_ts = None
-            for feature_name, val_bin, ts in cur.fetchall():
+            for feature_name, val_bin in res_val.items():
                 val = ValueProto()
                 val.ParseFromString(val_bin)
                 res[feature_name] = val
-                res_ts = ts
 
             if not res:
                 result.append((None, None))
@@ -169,7 +141,6 @@ class LocalProvider(Provider):
         end_date: datetime,
         registry: Registry,
         project: str,
-        tqdm_builder: Callable[[int], tqdm],
     ) -> None:
         entities = []
         for entity_name in feature_view.entities:
@@ -202,10 +173,7 @@ class LocalProvider(Provider):
         join_keys = [entity.join_key for entity in entities]
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
-        with tqdm_builder(len(rows_to_write)) as pbar:
-            self.online_write_batch(
-                project, feature_view, rows_to_write, lambda x: pbar.update(x)
-            )
+        self.online_write_batch(project, feature_view, rows_to_write, None)
 
         feature_view.materialization_intervals.append((start_date, end_date))
         registry.apply_feature_view(feature_view, project)
@@ -232,12 +200,10 @@ class LocalProvider(Provider):
         )
 
 
-def _table_id(project: str, table: Union[FeatureTable, FeatureView]) -> str:
-    return f"{project}_{table.name}"
+def _redis_key(project: str, entity_key: EntityKeyProto) -> str:
+    key = _mmh3(serialize_entity_key(entity_key))
+    return f"{project}:{key}"
 
 
-def _to_naive_utc(ts: datetime):
-    if ts.tzinfo is None:
-        return ts
-    else:
-        return ts.astimezone(pytz.utc).replace(tzinfo=None)
+def _mmh3(key: str) -> str:
+    return mmh3.hash_bytes(key).hex()
