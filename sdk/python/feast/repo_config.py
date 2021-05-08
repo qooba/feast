@@ -40,9 +40,16 @@ class RedisOnlineStoreConfig(FeastBaseModel):
     type: Literal["redis"] = "redis"
     """Online store type selector"""
 
+class DynamoDbOnlineStoreConfig(FeastBaseModel):
+    """Online store config for DynamoDB store"""
+
+    type: Literal["dynamodb"] = "dynamodb"
+    """Online store type selector"""
+
 
 OnlineStoreConfig = Union[
-    DatastoreOnlineStoreConfig, SqliteOnlineStoreConfig, RedisOnlineStoreConfig
+    DatastoreOnlineStoreConfig, SqliteOnlineStoreConfig,
+    RedisOnlineStoreConfig, DynamoDbOnlineStoreConfig
 ]
 
 
@@ -72,7 +79,7 @@ class RepoConfig(FeastBaseModel):
     """
 
     provider: StrictStr
-    """ str: local or gcp or redis """
+    """ str: local or gcp or redis or aws_dynamodb """
 
     online_store: OnlineStoreConfig = SqliteOnlineStoreConfig()
     """ OnlineStoreConfig: Online store configuration (optional depending on provider) """
@@ -111,20 +118,22 @@ class RepoConfig(FeastBaseModel):
                     values["online_store"]["type"] = "datastore"
                 elif values["provider"] == "redis":
                     values["online_store"]["type"] = "redis"
-
+                elif values["provider"] == "aws_dynamodb":
+                    values["online_store"]["type"] = "dynamodb"
             online_store_type = values["online_store"]["type"]
-
             # Make sure the user hasn't provided the wrong type
-            assert online_store_type in ["datastore", "sqlite", "redis"]
-
+            assert online_store_type in ["datastore", "sqlite", "redis",
+                                         "dynamodb"]
             # Validate the dict to ensure one of the union types match
             try:
                 if online_store_type == "sqlite":
                     SqliteOnlineStoreConfig(**values["online_store"])
-                elif values["online_store"]["type"] == "datastore":
+                elif online_store_type == "datastore":
                     DatastoreOnlineStoreConfig(**values["online_store"])
                 elif values["online_store"]["type"] == "redis":
                     RedisOnlineStoreConfig(**values["online_store"])
+                elif online_store_type == "dynamodb":
+                    DynamoDbOnlineStoreConfig(**values["online_store"])
                 else:
                     raise ValidationError(
                         f"Invalid online store type {online_store_type}"

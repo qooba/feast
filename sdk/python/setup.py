@@ -62,6 +62,7 @@ REQUIRED = [
     "toml==0.10.*",
     "tqdm==4.*",
     "redis-py-cluster==2.1.2",
+    "boto3==1.17.*",
 ]
 
 CI_REQUIRED = [
