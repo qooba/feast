@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
+import sys
 from collections import OrderedDict, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,9 +20,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 from colorama import Fore, Style
+from tqdm import tqdm
 
 from feast import utils
 from feast.entity import Entity
+from feast.errors import FeastProviderLoginError, FeatureViewNotFoundException
 from feast.feature_view import FeatureView
 from feast.infra.provider import Provider, RetrievalJob, get_provider
 from feast.online_response import OnlineResponse, _infer_online_entity_rows
@@ -38,27 +42,26 @@ from feast.version import get_version
 class FeatureStore:
     """
     A FeatureStore object is used to define, create, and retrieve features.
+
+    Args:
+        repo_path: Path to a `feature_store.yaml` used to configure the feature store
+        config (RepoConfig): Configuration object used to configure the feature store
     """
 
     config: RepoConfig
-    repo_path: Optional[str]
+    repo_path: Path
     _registry: Registry
 
     def __init__(
         self, repo_path: Optional[str] = None, config: Optional[RepoConfig] = None,
     ):
-        """ Initializes a new FeatureStore object. Used to manage a feature store.
-
-        Args:
-            repo_path: Path to a `feature_store.yaml` used to configure the feature store
-            config (RepoConfig): Configuration object used to configure the feature store
-        """
-        self.repo_path = repo_path
         if repo_path is not None and config is not None:
             raise ValueError("You cannot specify both repo_path and config")
         if config is not None:
+            self.repo_path = Path(os.getcwd())
             self.config = config
         elif repo_path is not None:
+            self.repo_path = Path(repo_path)
             self.config = load_repo_config(Path(repo_path))
         else:
             raise ValueError("Please specify one of repo_path or config")
@@ -66,6 +69,7 @@ class FeatureStore:
         registry_config = self.config.get_registry_config()
         self._registry = Registry(
             registry_path=registry_config.path,
+            repo_path=self.repo_path,
             cache_ttl=timedelta(seconds=registry_config.cache_ttl_seconds),
         )
         self._tele = Telemetry()
@@ -80,7 +84,8 @@ class FeatureStore:
         return self.config.project
 
     def _get_provider(self) -> Provider:
-        return get_provider(self.config)
+        # TODO: Bake self.repo_path into self.config so that we dont only have one interface to paths
+        return get_provider(self.config, self.repo_path)
 
     def refresh_registry(self):
         """Fetches and caches a copy of the feature registry in memory.
@@ -101,6 +106,7 @@ class FeatureStore:
         registry_config = self.config.get_registry_config()
         self._registry = Registry(
             registry_path=registry_config.path,
+            repo_path=self.repo_path,
             cache_ttl=timedelta(seconds=registry_config.cache_ttl_seconds),
         )
         self._registry.refresh()
@@ -181,11 +187,13 @@ class FeatureStore:
         infrastructure (e.g., create tables in an online store) in order to reflect these new definitions. All
         operations are idempotent, meaning they can safely be rerun.
 
-        Args: objects (List[Union[FeatureView, Entity]]): A list of FeatureView or Entity objects that should be
-            registered
+        Args:
+            objects (List[Union[FeatureView, Entity]]): A list of FeatureView or Entity objects that should be
+                registered
 
         Examples:
             Register a single Entity and FeatureView.
+
             >>> from feast.feature_store import FeatureStore
             >>> from feast import Entity, FeatureView, Feature, ValueType, FileSource
             >>> from datetime import timedelta
@@ -210,20 +218,24 @@ class FeatureStore:
         if isinstance(objects, Entity) or isinstance(objects, FeatureView):
             objects = [objects]
         views_to_update = []
+        entities_to_update = []
         for ob in objects:
             if isinstance(ob, FeatureView):
-                self._registry.apply_feature_view(ob, project=self.config.project)
+                self._registry.apply_feature_view(ob, project=self.project)
                 views_to_update.append(ob)
             elif isinstance(ob, Entity):
-                self._registry.apply_entity(ob, project=self.config.project)
+                self._registry.apply_entity(ob, project=self.project)
+                entities_to_update.append(ob)
             else:
                 raise ValueError(
                     f"Unknown object type ({type(ob)}) provided as part of apply() call"
                 )
         self._get_provider().update_infra(
-            project=self.config.project,
+            project=self.project,
             tables_to_delete=[],
             tables_to_keep=views_to_update,
+            entities_to_delete=[],
+            entities_to_keep=entities_to_update,
             partial=True,
         )
 
@@ -256,6 +268,7 @@ class FeatureStore:
 
         Examples:
             Retrieve historical features using a BigQuery SQL entity dataframe
+
             >>> from feast.feature_store import FeatureStore
             >>>
             >>> fs = FeatureStore(config=RepoConfig(provider="gcp"))
@@ -268,19 +281,27 @@ class FeatureStore:
         """
         self._tele.log("get_historical_features")
 
-        all_feature_views = self._registry.list_feature_views(
-            project=self.config.project
-        )
-        feature_views = _get_requested_feature_views(feature_refs, all_feature_views)
+        all_feature_views = self._registry.list_feature_views(project=self.project)
+        try:
+            feature_views = _get_requested_feature_views(
+                feature_refs, all_feature_views
+            )
+        except FeatureViewNotFoundException as e:
+            sys.exit(e)
+
         provider = self._get_provider()
-        job = provider.get_historical_features(
-            self.config,
-            feature_views,
-            feature_refs,
-            entity_df,
-            self._registry,
-            self.project,
-        )
+        try:
+            job = provider.get_historical_features(
+                self.config,
+                feature_views,
+                feature_refs,
+                entity_df,
+                self._registry,
+                self.project,
+            )
+        except FeastProviderLoginError as e:
+            sys.exit(e)
+
         return job
 
     def materialize_incremental(
@@ -302,6 +323,7 @@ class FeatureStore:
 
         Examples:
             Materialize all features into the online store up to 5 minutes ago.
+
             >>> from datetime import datetime, timedelta
             >>> from feast.feature_store import FeatureStore
             >>>
@@ -313,15 +335,19 @@ class FeatureStore:
         feature_views_to_materialize = []
         if feature_views is None:
             feature_views_to_materialize = self._registry.list_feature_views(
-                self.config.project
+                self.project
             )
         else:
             for name in feature_views:
-                feature_view = self._registry.get_feature_view(
-                    name, self.config.project
-                )
+                feature_view = self._registry.get_feature_view(name, self.project)
                 feature_views_to_materialize.append(feature_view)
 
+        _print_materialization_log(
+            None,
+            end_date,
+            len(feature_views_to_materialize),
+            self.config.online_store.type,
+        )
         # TODO paging large loads
         for feature_view in feature_views_to_materialize:
             start_date = feature_view.most_recent_end_time
@@ -333,11 +359,23 @@ class FeatureStore:
                     )
                 start_date = datetime.utcnow() - feature_view.ttl
             provider = self._get_provider()
-            _print_materialization_log(start_date, end_date, feature_view)
-            provider.materialize_single_feature_view(
-                feature_view, start_date, end_date, self._registry, self.project
+            print(
+                f"{Style.BRIGHT + Fore.GREEN}{feature_view.name}{Style.RESET_ALL}"
+                f" from {Style.BRIGHT + Fore.GREEN}{start_date.replace(microsecond=0).astimezone()}{Style.RESET_ALL}"
+                f" to {Style.BRIGHT + Fore.GREEN}{end_date.replace(microsecond=0).astimezone()}{Style.RESET_ALL}:"
             )
-            print(" done!")
+
+            def tqdm_builder(length):
+                return tqdm(total=length, ncols=100)
+
+            provider.materialize_single_feature_view(
+                feature_view,
+                start_date,
+                end_date,
+                self._registry,
+                self.project,
+                tqdm_builder,
+            )
 
     def materialize(
         self,
@@ -361,6 +399,7 @@ class FeatureStore:
         Examples:
             Materialize all features into the online store over the interval
             from 3 hours ago to 10 minutes ago.
+
             >>> from datetime import datetime, timedelta
             >>> from feast.feature_store import FeatureStore
             >>>
@@ -379,23 +418,35 @@ class FeatureStore:
         feature_views_to_materialize = []
         if feature_views is None:
             feature_views_to_materialize = self._registry.list_feature_views(
-                self.config.project
+                self.project
             )
         else:
             for name in feature_views:
-                feature_view = self._registry.get_feature_view(
-                    name, self.config.project
-                )
+                feature_view = self._registry.get_feature_view(name, self.project)
                 feature_views_to_materialize.append(feature_view)
 
+        _print_materialization_log(
+            start_date,
+            end_date,
+            len(feature_views_to_materialize),
+            self.config.online_store.type,
+        )
         # TODO paging large loads
         for feature_view in feature_views_to_materialize:
             provider = self._get_provider()
-            _print_materialization_log(start_date, end_date, feature_view)
+            print(f"{Style.BRIGHT + Fore.GREEN}{feature_view.name}{Style.RESET_ALL}:")
+
+            def tqdm_builder(length):
+                return tqdm(total=length, ncols=100)
+
             provider.materialize_single_feature_view(
-                feature_view, start_date, end_date, self._registry, self.project
+                feature_view,
+                start_date,
+                end_date,
+                self._registry,
+                self.project,
+                tqdm_builder,
             )
-            print(" done!")
 
     def get_online_features(
         self, feature_refs: List[str], entity_rows: List[Dict[str, Any]],
@@ -428,7 +479,7 @@ class FeatureStore:
             >>> entity_rows = [{"customer_id": 0},{"customer_id": 1}]
             >>>
             >>> online_response = store.get_online_features(
-            >>>     feature_refs, entity_rows, project="my_project")
+            >>>     feature_refs, entity_rows)
             >>> online_response_dict = online_response.to_dict()
             >>> print(online_response_dict)
             {'sales:daily_transactions': [1.1,1.2], 'sales:customer_id': [0,1]}
@@ -464,7 +515,7 @@ class FeatureStore:
             result_rows.append(_entity_row_to_field_values(entity_row_proto))
 
         all_feature_views = self._registry.list_feature_views(
-            project=self.config.project, allow_cache=True
+            project=self.project, allow_cache=True
         )
 
         grouped_refs = _group_refs(feature_refs, all_feature_views)
@@ -473,7 +524,10 @@ class FeatureStore:
                 table, union_of_entity_keys, entity_name_to_join_key_map
             )
             read_rows = provider.online_read(
-                project=self.project, table=table, entity_keys=entity_keys,
+                project=self.project,
+                table=table,
+                entity_keys=entity_keys,
+                requested_features=requested_features,
             )
             for row_idx, read_row in enumerate(read_rows):
                 row_ts, feature_data = read_row
@@ -529,7 +583,7 @@ def _group_refs(
     for ref in feature_refs:
         view_name, feat_name = ref.split(":")
         if view_name not in view_index:
-            raise ValueError(f"Could not find feature view from reference {ref}")
+            raise FeatureViewNotFoundException(view_name)
         views_features[view_name].append(feat_name)
 
     result = []
@@ -582,11 +636,19 @@ def _get_table_entity_keys(
     return entity_key_protos
 
 
-def _print_materialization_log(start_date, end_date, feature_view):
-    print(
-        f"Materializing feature view {Style.BRIGHT + Fore.GREEN}{feature_view.name}{Style.RESET_ALL}"
-        f" from {Style.BRIGHT + Fore.GREEN}{start_date.astimezone()}{Style.RESET_ALL}"
-        f" to {Style.BRIGHT + Fore.GREEN}{end_date.astimezone()}{Style.RESET_ALL}",
-        end="",
-        flush=True,
-    )
+def _print_materialization_log(
+    start_date, end_date, num_feature_views: int, online_store: str
+):
+    if start_date:
+        print(
+            f"Materializing {Style.BRIGHT + Fore.GREEN}{num_feature_views}{Style.RESET_ALL} feature views"
+            f" from {Style.BRIGHT + Fore.GREEN}{start_date.replace(microsecond=0).astimezone()}{Style.RESET_ALL}"
+            f" to {Style.BRIGHT + Fore.GREEN}{end_date.replace(microsecond=0).astimezone()}{Style.RESET_ALL}"
+            f" into the {Style.BRIGHT + Fore.GREEN}{online_store}{Style.RESET_ALL} online store.\n"
+        )
+    else:
+        print(
+            f"Materializing {Style.BRIGHT + Fore.GREEN}{num_feature_views}{Style.RESET_ALL} feature views"
+            f" to {Style.BRIGHT + Fore.GREEN}{end_date.replace(microsecond=0).astimezone()}{Style.RESET_ALL}"
+            f" into the {Style.BRIGHT + Fore.GREEN}{online_store}{Style.RESET_ALL} online store.\n"
+        )

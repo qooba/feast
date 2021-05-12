@@ -6,8 +6,10 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import pandas as pd
 import pytz
+from tqdm import tqdm
 
 from feast import FeatureTable, utils
+from feast.entity import Entity
 from feast.feature_view import FeatureView
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.offline_stores.helpers import get_offline_store_from_sources
@@ -25,15 +27,19 @@ from feast.repo_config import RepoConfig, SqliteOnlineStoreConfig
 
 
 class LocalProvider(Provider):
-    _db_path: str
+    _db_path: Path
 
-    def __init__(self, config: RepoConfig):
+    def __init__(self, config: RepoConfig, repo_path: Path):
 
         assert config is not None
         assert config.online_store is not None
         local_online_store_config = config.online_store
         assert isinstance(local_online_store_config, SqliteOnlineStoreConfig)
-        self._db_path = local_online_store_config.path
+        local_path = Path(local_online_store_config.path)
+        if local_path.is_absolute():
+            self._db_path = local_path
+        else:
+            self._db_path = repo_path.joinpath(local_path)
 
     def _get_conn(self):
         Path(self._db_path).parent.mkdir(exist_ok=True)
@@ -46,6 +52,8 @@ class LocalProvider(Provider):
         project: str,
         tables_to_delete: Sequence[Union[FeatureTable, FeatureView]],
         tables_to_keep: Sequence[Union[FeatureTable, FeatureView]],
+        entities_to_delete: Sequence[Entity],
+        entities_to_keep: Sequence[Entity],
         partial: bool,
     ):
         conn = self._get_conn()
@@ -61,7 +69,10 @@ class LocalProvider(Provider):
             conn.execute(f"DROP TABLE IF EXISTS {_table_id(project, table)}")
 
     def teardown_infra(
-        self, project: str, tables: Sequence[Union[FeatureTable, FeatureView]]
+        self,
+        project: str,
+        tables: Sequence[Union[FeatureTable, FeatureView]],
+        entities: Sequence[Entity],
     ) -> None:
         os.unlink(self._db_path)
 
@@ -113,12 +124,15 @@ class LocalProvider(Provider):
                             created_ts,
                         ),
                     )
+                if progress:
+                    progress(1)
 
     def online_read(
         self,
         project: str,
         table: Union[FeatureTable, FeatureView],
         entity_keys: List[EntityKeyProto],
+        requested_features: List[str] = None,
     ) -> List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]]:
 
         conn = self._get_conn()
@@ -155,6 +169,7 @@ class LocalProvider(Provider):
         end_date: datetime,
         registry: Registry,
         project: str,
+        tqdm_builder: Callable[[int], tqdm],
     ) -> None:
         entities = []
         for entity_name in feature_view.entities:
@@ -187,7 +202,10 @@ class LocalProvider(Provider):
         join_keys = [entity.join_key for entity in entities]
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
-        self.online_write_batch(project, feature_view, rows_to_write, None)
+        with tqdm_builder(len(rows_to_write)) as pbar:
+            self.online_write_batch(
+                project, feature_view, rows_to_write, lambda x: pbar.update(x)
+            )
 
         feature_view.materialization_intervals.append((start_date, end_date))
         registry.apply_feature_view(feature_view, project)

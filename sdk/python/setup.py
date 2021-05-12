@@ -35,32 +35,36 @@ NAME = "feast"
 DESCRIPTION = "Python SDK for Feast"
 URL = "https://github.com/feast-dev/feast"
 AUTHOR = "Feast"
-REQUIRES_PYTHON = ">=3.6.0"
+REQUIRES_PYTHON = ">=3.7.0"
 
 REQUIRED = [
     "Click==7.*",
     "colorama>=0.3.9",
     "fastavro>=0.22.11,<0.23",
     "google-api-core>=1.23.0",
-    "google-cloud-bigquery>=2.0.*",
-    "google-cloud-bigquery-storage >= 2.0.0",
-    "google-cloud-storage>=1.20.*",
-    "google-cloud-core==1.4.*",
     "googleapis-common-protos==1.52.*",
-    "grpcio==1.31.0",
+    "grpcio>=1.34.0",
     "Jinja2>=2.0.0",
     "jsonschema",
     "mmh3",
-    "numpy<1.20.0",
-    "pandas~=1.0.0",
+    "pandas>=1.0.0",
     "pandavro==1.5.*",
     "protobuf>=3.10",
-    "pyarrow==2.0.0",
+    "pyarrow>=2.0.0",
     "pydantic>=1.0.0",
     "PyYAML==5.3.*",
     "tabulate==0.8.*",
     "toml==0.10.*",
     "tqdm==4.*",
+    "redis-py-cluster==2.1.2",
+]
+
+GCP_REQUIRED = [
+    "google-cloud-bigquery>=2.0.*",
+    "google-cloud-bigquery-storage >= 2.0.0",
+    "google-cloud-datastore>=2.1.*",
+    "google-cloud-storage>=1.20.*",
+    "google-cloud-core==1.4.*",
 ]
 
 CI_REQUIRED = [
@@ -68,8 +72,8 @@ CI_REQUIRED = [
     "flake8",
     "black==19.10b0",
     "isort>=5",
-    "grpcio-tools==1.31.0",
-    "grpcio-testing==1.31.0",
+    "grpcio-tools==1.34.0",
+    "grpcio-testing==1.34.0",
     "mock==2.0.0",
     "moto",
     "mypy==0.790",
@@ -87,8 +91,13 @@ CI_REQUIRED = [
     "tenacity",
     "adlfs==0.5.9",
     "firebase-admin==4.5.2",
-    "google-cloud-datastore==2.1.0",
-    "pre-commit"
+    "pre-commit",
+    "assertpy==1.1",
+    "google-cloud-bigquery>=2.0.*",
+    "google-cloud-bigquery-storage >= 2.0.0",
+    "google-cloud-datastore>=2.1.*",
+    "google-cloud-storage>=1.20.*",
+    "google-cloud-core==1.4.*",
 ]
 
 # README file from Feast repo root directory
@@ -99,7 +108,7 @@ repo_root = (
         .decode("utf-8")
 )
 README_FILE = os.path.join(repo_root, "README.md")
-with open(os.path.join(README_FILE), "r") as f:
+with open(README_FILE, "r") as f:
     LONG_DESCRIPTION = f.read()
 
 # Add Support for parsing tags that have a prefix containing '/' (ie 'sdk/go') to setuptools_scm.
@@ -181,7 +190,8 @@ setup(
     # Install dev requirements with: pip install -e .[dev]
     extras_require={
         "dev": ["mypy-protobuf==1.*", "grpcio-testing==1.*"],
-        "ci": CI_REQUIRED
+        "ci": CI_REQUIRED,
+        "gcp": GCP_REQUIRED,
     },
     include_package_data=True,
     license="Apache",
@@ -191,11 +201,11 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
     ],
     entry_points={"console_scripts": ["feast=feast.cli:cli"]},
     use_scm_version={"root": "../..", "relative_to": __file__, "tag_regex": TAG_REGEX},
-    setup_requires=["setuptools_scm", "grpcio", "grpcio-tools==1.31.0", "mypy-protobuf", "sphinx"],
+    setup_requires=["setuptools_scm", "grpcio", "grpcio-tools==1.34.0", "mypy-protobuf", "sphinx"],
     package_data={
         "": [
             "protos/feast/**/*.proto",

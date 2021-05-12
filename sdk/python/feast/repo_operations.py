@@ -5,7 +5,9 @@ import sys
 from datetime import timedelta
 from importlib.abc import Loader
 from pathlib import Path
-from typing import List, NamedTuple, Union
+from typing import List, NamedTuple, Set, Union
+
+import click
 
 from feast import Entity, FeatureTable
 from feast.feature_view import FeatureView
@@ -29,18 +31,65 @@ class ParsedRepo(NamedTuple):
     entities: List[Entity]
 
 
+def read_feastignore(repo_root: Path) -> List[str]:
+    """Read .feastignore in the repo root directory (if exists) and return the list of user-defined ignore paths"""
+    feast_ignore = repo_root / ".feastignore"
+    if not feast_ignore.is_file():
+        return []
+    lines = feast_ignore.read_text().strip().split("\n")
+    ignore_paths = []
+    for line in lines:
+        # Remove everything after the first occurance of "#" symbol (comments)
+        if line.find("#") >= 0:
+            line = line[: line.find("#")]
+        # Strip leading or ending whitespaces
+        line = line.strip()
+        # Add this processed line to ignore_paths if it's not empty
+        if len(line) > 0:
+            ignore_paths.append(line)
+    return ignore_paths
+
+
+def get_ignore_files(repo_root: Path, ignore_paths: List[str]) -> Set[Path]:
+    """Get all ignore files that match any of the user-defined ignore paths"""
+    ignore_files = set()
+    for ignore_path in ignore_paths:
+        # ignore_path may contains matchers (* or **). Use glob() to match user-defined path to actual paths
+        for matched_path in repo_root.glob(ignore_path):
+            if matched_path.is_file():
+                # If the matched path is a file, add that to ignore_files set
+                ignore_files.add(matched_path.resolve())
+            else:
+                # Otherwise, list all Python files in that directory and add all of them to ignore_files set
+                ignore_files |= {
+                    sub_path.resolve()
+                    for sub_path in matched_path.glob("**/*.py")
+                    if sub_path.is_file()
+                }
+    return ignore_files
+
+
+def get_repo_files(repo_root: Path) -> List[Path]:
+    """Get the list of all repo files, ignoring undesired files & directories specified in .feastignore"""
+    # Read ignore paths from .feastignore and create a set of all files that match any of these paths
+    ignore_paths = read_feastignore(repo_root)
+    ignore_files = get_ignore_files(repo_root, ignore_paths)
+
+    # List all Python files in the root directory (recursively)
+    repo_files = {p.resolve() for p in repo_root.glob("**/*.py") if p.is_file()}
+    # Ignore all files that match any of the ignore paths in .feastignore
+    repo_files -= ignore_files
+
+    # Sort repo_files to read them in the same order every time
+    return sorted(repo_files)
+
+
 def parse_repo(repo_root: Path) -> ParsedRepo:
     """ Collect feature table definitions from feature repo """
     res = ParsedRepo(feature_tables=[], entities=[], feature_views=[])
 
-    # FIXME: process subdirs but exclude hidden ones
-    repo_files = [p.resolve() for p in repo_root.glob("*.py")]
-
-    for repo_file in repo_files:
-
+    for repo_file in get_repo_files(repo_root):
         module_path = py_path_to_module(repo_file, repo_root)
-
-        print(f"Processing {repo_file} as {module_path}")
         module = importlib.import_module(module_path)
 
         for attr_name in dir(module):
@@ -55,20 +104,26 @@ def parse_repo(repo_root: Path) -> ParsedRepo:
 
 
 def apply_total(repo_config: RepoConfig, repo_path: Path):
+    from colorama import Fore, Style
+
     os.chdir(repo_path)
     sys.path.append("")
     registry_config = repo_config.get_registry_config()
     project = repo_config.project
     registry = Registry(
         registry_path=registry_config.path,
+        repo_path=repo_path,
         cache_ttl=timedelta(seconds=registry_config.cache_ttl_seconds),
     )
+    registry._initialize_registry()
     sys.dont_write_bytecode = True
     repo = parse_repo(repo_path)
     sys.dont_write_bytecode = False
-
     for entity in repo.entities:
         registry.apply_entity(entity, project=project)
+        click.echo(
+            f"Registered entity {Style.BRIGHT + Fore.GREEN}{entity.name}{Style.RESET_ALL}"
+        )
 
     repo_table_names = set(t.name for t in repo.feature_tables)
 
@@ -88,20 +143,32 @@ def apply_total(repo_config: RepoConfig, repo_path: Path):
     # Delete tables that should not exist
     for registry_table in tables_to_delete:
         registry.delete_feature_table(registry_table.name, project=project)
+        click.echo(
+            f"Deleted feature table {Style.BRIGHT + Fore.GREEN}{registry_table.name}{Style.RESET_ALL} from registry"
+        )
 
     # Create tables that should
     for table in repo.feature_tables:
         registry.apply_feature_table(table, project)
+        click.echo(
+            f"Registered feature table {Style.BRIGHT + Fore.GREEN}{registry_table.name}{Style.RESET_ALL}"
+        )
 
     # Delete views that should not exist
     for registry_view in views_to_delete:
         registry.delete_feature_view(registry_view.name, project=project)
+        click.echo(
+            f"Deleted feature view {Style.BRIGHT + Fore.GREEN}{registry_view.name}{Style.RESET_ALL} from registry"
+        )
 
     # Create views that should
     for view in repo.feature_views:
         registry.apply_feature_view(view, project)
+        click.echo(
+            f"Registered feature view {Style.BRIGHT + Fore.GREEN}{view.name}{Style.RESET_ALL}"
+        )
 
-    infra_provider = get_provider(repo_config)
+    infra_provider = get_provider(repo_config, repo_path)
 
     all_to_delete: List[Union[FeatureTable, FeatureView]] = []
     all_to_delete.extend(tables_to_delete)
@@ -111,36 +178,64 @@ def apply_total(repo_config: RepoConfig, repo_path: Path):
     all_to_keep.extend(repo.feature_tables)
     all_to_keep.extend(repo.feature_views)
 
+    entities_to_delete: List[Entity] = []
+    repo_entities_names = set([e.name for e in repo.entities])
+    for registry_entity in registry.list_entities(project=project):
+        if registry_entity.name not in repo_entities_names:
+            entities_to_delete.append(registry_entity)
+
+    entities_to_keep: List[Entity] = repo.entities
+
+    for name in [view.name for view in repo.feature_tables] + [
+        table.name for table in repo.feature_views
+    ]:
+        click.echo(
+            f"Deploying infrastructure for {Style.BRIGHT + Fore.GREEN}{name}{Style.RESET_ALL}"
+        )
+    for name in [view.name for view in views_to_delete] + [
+        table.name for table in tables_to_delete
+    ]:
+        click.echo(
+            f"Removing infrastructure for {Style.BRIGHT + Fore.GREEN}{name}{Style.RESET_ALL}"
+        )
+
     infra_provider.update_infra(
         project,
         tables_to_delete=all_to_delete,
         tables_to_keep=all_to_keep,
+        entities_to_delete=entities_to_delete,
+        entities_to_keep=entities_to_keep,
         partial=False,
     )
-
-    print("Done!")
 
 
 def teardown(repo_config: RepoConfig, repo_path: Path):
     registry_config = repo_config.get_registry_config()
     registry = Registry(
         registry_path=registry_config.path,
+        repo_path=repo_path,
         cache_ttl=timedelta(seconds=registry_config.cache_ttl_seconds),
     )
     project = repo_config.project
     registry_tables: List[Union[FeatureTable, FeatureView]] = []
     registry_tables.extend(registry.list_feature_tables(project=project))
     registry_tables.extend(registry.list_feature_views(project=project))
-    infra_provider = get_provider(repo_config)
-    infra_provider.teardown_infra(project, tables=registry_tables)
+
+    registry_entities: List[Entity] = registry.list_entities(project=project)
+
+    infra_provider = get_provider(repo_config, repo_path)
+    infra_provider.teardown_infra(
+        project, tables=registry_tables, entities=registry_entities
+    )
 
 
-def registry_dump(repo_config: RepoConfig):
+def registry_dump(repo_config: RepoConfig, repo_path: Path):
     """ For debugging only: output contents of the metadata registry """
     registry_config = repo_config.get_registry_config()
     project = repo_config.project
     registry = Registry(
         registry_path=registry_config.path,
+        repo_path=repo_path,
         cache_ttl=timedelta(seconds=registry_config.cache_ttl_seconds),
     )
 
