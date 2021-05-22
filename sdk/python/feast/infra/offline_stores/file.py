@@ -237,6 +237,6 @@ class FileOfflineStore(OfflineStore):
             s3 = fs.S3FileSystem(
                 endpoint_override=os.environ.get("FEAST_S3_ENDPOINT_URL")
             )
-            return path.lstrip("s3://"), s3
+            return path.replace("s3://",""), s3
         else:
             return path, None
