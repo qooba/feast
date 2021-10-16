@@ -91,6 +91,7 @@ class PassthroughProvider(Provider):
         registry: Registry,
         project: str,
         tqdm_builder: Callable[[int], tqdm],
+        use_dask: bool = False,
     ) -> None:
         entities = []
         for entity_name in feature_view.entities:
@@ -114,7 +115,7 @@ class PassthroughProvider(Provider):
             end_date=end_date,
         )
 
-        table = offline_job.to_arrow()
+        table = offline_job.to_arrow(use_dask)
 
         if feature_view.batch_source.field_mapping is not None:
             table = _run_field_mapping(table, feature_view.batch_source.field_mapping)

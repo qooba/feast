@@ -64,7 +64,6 @@ class RetrievalJob(ABC):
             )
         return features_df
 
-
     @abstractmethod
     def _to_df_internal(self) -> pd.DataFrame:
         """Return dataset as Pandas DataFrame synchronously"""
@@ -73,25 +72,36 @@ class RetrievalJob(ABC):
     @abstractmethod
     def _to_dask_df_internal(self) -> dd.DataFrame:
         """Return dataset as Dask DataFrame synchronously"""
-        pass
-
+        raise NotImplementedError("Dask is currently not supported for this provider")
 
     @abstractmethod
     def _to_arrow_internal(self) -> pyarrow.Table:
         """Return dataset as pyarrow Table synchronously"""
         pass
 
-    def to_arrow(self) -> pyarrow.Table:
+    @abstractmethod
+    def _to_arrow_dask_internal(self) -> pyarrow.Table:
+        """Return dataset as pyarrow Table synchronously"""
+        raise NotImplementedError("Dask is currently not supported for this provider")
+
+    def to_arrow(self, use_dask: bool = False) -> pyarrow.Table:
         """Return dataset as pyarrow Table synchronously"""
         if self.on_demand_feature_views is None:
-            return self._to_arrow_internal()
+            if use_dask:
+                return self._to_arrow_dask_internal()
+            else:
+                return self._to_arrow_internal()
 
-        features_df = self._to_df_internal()
+        if use_dask:
+            features_df = self._to_dask_df_internal()
+        else:
+            features_df = self._to_df_internal()
+
         for odfv in self.on_demand_feature_views:
             features_df = features_df.join(
                 odfv.get_transformed_features_df(self.full_feature_names, features_df)
             )
-        return pyarrow.Table.from_pandas(features_df)
+        return pyarrow.Table.from_pandas(features_df.compute() if use_dask else features_df)
 
 
 class OfflineStore(ABC):
