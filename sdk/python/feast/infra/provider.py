@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 import pandas
 import pyarrow
 from tqdm import tqdm
+import dask.dataframe as dd
 
 from feast import errors, importer
 from feast.entity import Entity
@@ -273,6 +274,14 @@ def _run_field_mapping(
     ]
     table = table.rename_columns(mapped_cols)
     return table
+
+
+def _run_dask_field_mapping(
+    table: dd.DataFrame, field_mapping: Dict[str, str],
+):
+    if field_mapping:
+        # run field mapping in the forward direction
+        table.rename(field_mapping)
 
 
 def _convert_arrow_to_proto(
