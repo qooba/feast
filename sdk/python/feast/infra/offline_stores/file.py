@@ -68,6 +68,12 @@ class FileRetrievalJob(RetrievalJob):
         df = self.evaluation_function()
         return pyarrow.Table.from_pandas(df)
 
+    def _to_arrow_dask_internal(self):
+        # Only execute the evaluation function to build the final historical retrieval dataframe at the last moment.
+        df = self.evaluation_function(use_dask=True)
+        return pyarrow.Table.from_pandas(df.compute())
+
+
 
 class FileOfflineStore(OfflineStore):
     @staticmethod
@@ -348,16 +354,16 @@ class FileOfflineStore(OfflineStore):
                     }
                 } if data_source.file_options.s3_endpoint_override else None
 
-                source_df = dd.read_parquet(path, storage_options=storage_options)
+                source_df = dd.read_parquet(data_source.path, storage_options=storage_options)
 
                 source_df[event_timestamp_column] = source_df[event_timestamp_column].apply(
-                    lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc), meta=(event_timestamp_column,'datetime64[ns, UTC]'
+                    lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc), meta=(event_timestamp_column,'datetime64[ns, UTC]')
                 )
                 if created_timestamp_column:
                     source_df[created_timestamp_column] = source_df[
                         created_timestamp_column
                     ].apply(
-                        lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc), meta=(event_timestamp_column,'datetime64[ns, UTC]'
+                        lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc), meta=(event_timestamp_column,'datetime64[ns, UTC]')
                     )
 
             else:
@@ -388,8 +394,7 @@ class FileOfflineStore(OfflineStore):
                 else [event_timestamp_column]
             )
 
-
-            source_df=source_df.sort_values(by=ts_columns)
+            source_df=source_df.sort_values(by=ts_columns[0] if use_dask else ts_columns)
 
             filtered_df = source_df[
                 (source_df[event_timestamp_column] >= start_date)
@@ -408,7 +413,7 @@ class FileOfflineStore(OfflineStore):
                 last_values_df[DUMMY_ENTITY_ID] = DUMMY_ENTITY_VAL
                 columns_to_extract.add(DUMMY_ENTITY_ID)
 
-            return last_values_df[columns_to_extract]
+            return last_values_df[list(columns_to_extract) if use_dask else columns_to_extract]
 
         # When materializing a single feature view, we don't need full feature names. On demand transforms aren't materialized
         return FileRetrievalJob(
