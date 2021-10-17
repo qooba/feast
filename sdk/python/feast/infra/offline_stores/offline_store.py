@@ -15,8 +15,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List, Optional, Union
 
-import pandas as pd
 import dask.dataframe as dd
+import pandas as pd
 import pyarrow
 
 from feast.data_source import DataSource
@@ -99,7 +99,9 @@ class RetrievalJob(ABC):
             features_df = features_df.join(
                 odfv.get_transformed_features_df(self.full_feature_names, features_df)
             )
-        return pyarrow.Table.from_pandas(features_df.compute() if use_dask else features_df)
+        return pyarrow.Table.from_pandas(
+            features_df.compute() if use_dask else features_df
+        )
 
 
 class OfflineStore(ABC):
