@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import Callable, List, Optional, Union
 
-import pandas as pd
 import dask.dataframe as dd
+import pandas as pd
 import pyarrow
 import pytz
 from pydantic.typing import Literal
@@ -17,8 +17,8 @@ from feast.infra.offline_stores.offline_utils import (
 )
 from feast.infra.provider import (
     _get_requested_feature_views_to_features_dict,
+    _run_dask_field_mapping,
     _run_field_mapping,
-    _run_dask_field_mapping
 )
 from feast.registry import Registry
 from feast.repo_config import FeastConfigBaseModel, RepoConfig
@@ -74,7 +74,6 @@ class FileRetrievalJob(RetrievalJob):
         return pyarrow.Table.from_pandas(df.compute())
 
 
-
 class FileOfflineStore(OfflineStore):
     @staticmethod
     def get_historical_features(
@@ -86,7 +85,9 @@ class FileOfflineStore(OfflineStore):
         project: str,
         full_feature_names: bool = False,
     ) -> RetrievalJob:
-        if not isinstance(entity_df, pd.DataFrame) and not isinstance(entity_df, dd.DataFrame):
+        if not isinstance(entity_df, pd.DataFrame) and not isinstance(
+            entity_df, dd.DataFrame
+        ):
             raise ValueError(
                 f"Please provide an entity_df of type {type(pd.DataFrame)} instead of type {type(entity_df)}"
             )
@@ -151,25 +152,33 @@ class FileOfflineStore(OfflineStore):
 
                 if use_dask:
                     merge_asof = dd.merge_asof
-                    storage_options = {
-                        "client_kwargs": {
-                            "endpoint_url": feature_view.batch_source.file_options.s3_endpoint_override
+                    storage_options = (
+                        {
+                            "client_kwargs": {
+                                "endpoint_url": feature_view.batch_source.file_options.s3_endpoint_override
+                            }
                         }
-                    } if feature_view.batch_source.file_options.s3_endpoint_override else None
+                        if feature_view.batch_source.file_options.s3_endpoint_override
+                        else None
+                    )
 
-                    df_to_join = dd.read_parquet(feature_view.batch_source.path, storage_options=storage_options)
+                    df_to_join = dd.read_parquet(
+                        feature_view.batch_source.path, storage_options=storage_options
+                    )
 
-                    # Rename entity columns by the join_key_map dictionary if it exists
-                    if feature_view.projection.join_key_map:
+                    if feature_view.batch_source.field_mapping is not None:
                         _run_dask_field_mapping(
-                            df_to_join, feature_view.projection.join_key_map
+                            df_to_join, feature_view.batch_source.field_mapping
                         )
 
                     # Make sure all timestamp fields are tz-aware. We default tz-naive fields to UTC
                     df_to_join[event_timestamp_column] = df_to_join[
                         event_timestamp_column
                     ].apply(
-                        lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc), meta=(event_timestamp_column,'datetime64[ns, UTC]')
+                        lambda x: x
+                        if x.tzinfo is not None
+                        else x.replace(tzinfo=pytz.utc),
+                        meta=(event_timestamp_column, "datetime64[ns, UTC]"),
                     )
                     if created_timestamp_column:
                         df_to_join[created_timestamp_column] = df_to_join[
@@ -178,8 +187,7 @@ class FileOfflineStore(OfflineStore):
                             lambda x: x
                             if x.tzinfo is not None
                             else x.replace(tzinfo=pytz.utc),
-                            meta=(event_timestamp_column,'datetime64[ns, UTC]')
-
+                            meta=(event_timestamp_column, "datetime64[ns, UTC]"),
                         )
 
                 else:
@@ -205,13 +213,13 @@ class FileOfflineStore(OfflineStore):
                     # https://pandas.pydata.org/pandas-docs/stable/user_guide/missing_data.html#values-considered-missing
                     df_to_join = table.to_pandas()
 
-
-
                     # Make sure all timestamp fields are tz-aware. We default tz-naive fields to UTC
                     df_to_join[event_timestamp_column] = df_to_join[
                         event_timestamp_column
                     ].apply(
-                        lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc)
+                        lambda x: x
+                        if x.tzinfo is not None
+                        else x.replace(tzinfo=pytz.utc)
                     )
                     if created_timestamp_column:
                         df_to_join[created_timestamp_column] = df_to_join[
@@ -241,7 +249,7 @@ class FileOfflineStore(OfflineStore):
                     feature_names.append(formatted_feature_name)
 
                     # Ensure that the source dataframe feature column includes the feature view name as a prefix
-                    df_to_join=df_to_join.rename(
+                    df_to_join = df_to_join.rename(
                         columns={feature: formatted_feature_name}
                     )
 
@@ -266,7 +274,7 @@ class FileOfflineStore(OfflineStore):
                         created_timestamp_column
                     ]
 
-                df_to_join=df_to_join.sort_values(by=event_timestamp_column)
+                df_to_join = df_to_join.sort_values(by=event_timestamp_column)
 
                 df_to_join.drop_duplicates(
                     right_entity_key_sort_columns,
@@ -282,10 +290,14 @@ class FileOfflineStore(OfflineStore):
 
                 if use_dask:
                     if not isinstance(entity_df_with_features, dd.DataFrame):
-                        entity_df_with_features = dd.from_pandas(entity_df_with_features, npartitions=1)
+                        entity_df_with_features = dd.from_pandas(
+                            entity_df_with_features, npartitions=1
+                        )
 
                     df_to_join = df_to_join.sort_values(event_timestamp_column)
-                    entity_df_with_features = entity_df_with_features.sort_values(entity_df_event_timestamp_col)
+                    entity_df_with_features = entity_df_with_features.sort_values(
+                        entity_df_event_timestamp_col
+                    )
 
                 entity_df_with_features = merge_asof(
                     entity_df_with_features,
@@ -307,8 +319,6 @@ class FileOfflineStore(OfflineStore):
                         entity_df_with_features.drop(
                             columns=[event_timestamp_column], inplace=True
                         )
-
-
 
                 # Ensure that we delete dataframes to free up memory
                 del df_to_join
@@ -348,22 +358,34 @@ class FileOfflineStore(OfflineStore):
         def evaluate_offline_job(use_dask: bool = False):
 
             if use_dask:
-                storage_options = {
-                    "client_kwargs": {
-                        "endpoint_url": data_source.file_options.s3_endpoint_override
+                storage_options = (
+                    {
+                        "client_kwargs": {
+                            "endpoint_url": data_source.file_options.s3_endpoint_override
+                        }
                     }
-                } if data_source.file_options.s3_endpoint_override else None
+                    if data_source.file_options.s3_endpoint_override
+                    else None
+                )
 
-                source_df = dd.read_parquet(data_source.path, storage_options=storage_options)
+                source_df = dd.read_parquet(
+                    data_source.path, storage_options=storage_options
+                )
 
-                source_df[event_timestamp_column] = source_df[event_timestamp_column].apply(
-                    lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc), meta=(event_timestamp_column,'datetime64[ns, UTC]')
+                source_df[event_timestamp_column] = source_df[
+                    event_timestamp_column
+                ].apply(
+                    lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc),
+                    meta=(event_timestamp_column, "datetime64[ns, UTC]"),
                 )
                 if created_timestamp_column:
                     source_df[created_timestamp_column] = source_df[
                         created_timestamp_column
                     ].apply(
-                        lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc), meta=(event_timestamp_column,'datetime64[ns, UTC]')
+                        lambda x: x
+                        if x.tzinfo is not None
+                        else x.replace(tzinfo=pytz.utc),
+                        meta=(event_timestamp_column, "datetime64[ns, UTC]"),
                     )
 
             else:
@@ -372,14 +394,18 @@ class FileOfflineStore(OfflineStore):
                 )
                 source_df = pd.read_parquet(path, filesystem=filesystem)
                 # Make sure all timestamp fields are tz-aware. We default tz-naive fields to UTC
-                source_df[event_timestamp_column] = source_df[event_timestamp_column].apply(
+                source_df[event_timestamp_column] = source_df[
+                    event_timestamp_column
+                ].apply(
                     lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc)
                 )
                 if created_timestamp_column:
                     source_df[created_timestamp_column] = source_df[
                         created_timestamp_column
                     ].apply(
-                        lambda x: x if x.tzinfo is not None else x.replace(tzinfo=pytz.utc)
+                        lambda x: x
+                        if x.tzinfo is not None
+                        else x.replace(tzinfo=pytz.utc)
                     )
 
             source_columns = set(source_df.columns)
@@ -394,7 +420,9 @@ class FileOfflineStore(OfflineStore):
                 else [event_timestamp_column]
             )
 
-            source_df=source_df.sort_values(by=ts_columns[0] if use_dask else ts_columns)
+            source_df = source_df.sort_values(
+                by=ts_columns[0] if use_dask else ts_columns
+            )
 
             filtered_df = source_df[
                 (source_df[event_timestamp_column] >= start_date)
@@ -413,7 +441,9 @@ class FileOfflineStore(OfflineStore):
                 last_values_df[DUMMY_ENTITY_ID] = DUMMY_ENTITY_VAL
                 columns_to_extract.add(DUMMY_ENTITY_ID)
 
-            return last_values_df[list(columns_to_extract) if use_dask else columns_to_extract]
+            return last_values_df[
+                list(columns_to_extract) if use_dask else columns_to_extract
+            ]
 
         # When materializing a single feature view, we don't need full feature names. On demand transforms aren't materialized
         return FileRetrievalJob(
