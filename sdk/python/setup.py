@@ -77,6 +77,10 @@ REDIS_REQUIRED = [
     "redis-py-cluster==2.1.2",
 ]
 
+DASK_REQUIRED = [
+    "dask==2021.9.1",
+]
+
 AWS_REQUIRED = [
     "boto3==1.17.*",
     "docker>=5.0.2",
@@ -119,6 +123,7 @@ CI_REQUIRED = [
     "google-cloud-core==1.4.*",
     "redis-py-cluster==2.1.2",
     "boto3==1.17.*",
+    "dask==2021.9.1",
 ]
 
 # Get git repo root directory
@@ -218,6 +223,7 @@ setup(
         "gcp": GCP_REQUIRED,
         "aws": AWS_REQUIRED,
         "redis": REDIS_REQUIRED,
+        "dask": DASK_REQUIRED,
     },
     include_package_data=True,
     license="Apache",
