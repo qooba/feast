@@ -13,7 +13,7 @@
 # limitations under the License.
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import dask.dataframe as dd
 import pandas as pd
@@ -140,4 +140,37 @@ class OfflineStore(ABC):
         project: str,
         full_feature_names: bool = False,
     ) -> RetrievalJob:
+        pass
+
+
+class EvaluationEngine(ABC):
+    """
+    OfflineStoreEngine is engine implementation which will process historical and materialization retrieval in specific way
+    """
+
+    @abstractmethod
+    def evaluate_historical_retrieval(
+        self,
+        feature_views: List[FeatureView],
+        entity_df: Union[pd.DataFrame, str],
+        registry: Registry,
+        project: str,
+        full_feature_names: bool,
+        entity_df_event_timestamp_col: str,
+        feature_views_to_features: Dict[FeatureView, List[str]],
+        on_demand_feature_views_to_features: Dict[OnDemandFeatureView, List[str]],
+    ):
+        pass
+
+    @abstractmethod
+    def evaluate_offline_job(
+        self,
+        data_source: DataSource,
+        join_key_columns: List[str],
+        feature_name_columns: List[str],
+        event_timestamp_column: str,
+        created_timestamp_column: Optional[str],
+        start_date: datetime,
+        end_date: datetime,
+    ):
         pass
