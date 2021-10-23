@@ -165,11 +165,11 @@ class EvaluationEngine(ABC):
     @abstractmethod
     def evaluate_offline_job(
         self,
-        data_source: DataSource,
+        data_source,
         join_key_columns: List[str],
         feature_name_columns: List[str],
         event_timestamp_column: str,
-        created_timestamp_column: Optional[str],
+        created_timestamp_column: str,
         start_date: datetime,
         end_date: datetime,
     ):

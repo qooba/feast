@@ -79,7 +79,7 @@ class FileRetrievalJob(RetrievalJob):
 
 
 class PandasEvaluationEngine(EvaluationEngine):
-    def _read_data(self, feature_view: FeatureView):
+    def _read_data(self, feature_view):
         # Read offline parquet data in pyarrow format.
         filesystem, path = FileSource.create_filesystem_and_path(
             feature_view.batch_source.path,
@@ -88,7 +88,7 @@ class PandasEvaluationEngine(EvaluationEngine):
 
         return pyarrow.parquet.read_table(path, filesystem=filesystem)
 
-    def _read_data_offline(self, data_source: DataSource):
+    def _read_data_offline(self, data_source):
         filesystem, path = FileSource.create_filesystem_and_path(
             data_source.path, data_source.file_options.s3_endpoint_override
         )
@@ -153,7 +153,7 @@ class PandasEvaluationEngine(EvaluationEngine):
     def evaluate_historical_retrieval(
         self,
         feature_views: List[FeatureView],
-        entity_df: Union[pd.DataFrame, str],
+        entity_df,
         registry: Registry,
         project: str,
         full_feature_names: bool,
@@ -285,11 +285,11 @@ class PandasEvaluationEngine(EvaluationEngine):
 
     def evaluate_offline_job(
         self,
-        data_source: DataSource,
+        data_source,
         join_key_columns: List[str],
         feature_name_columns: List[str],
         event_timestamp_column: str,
-        created_timestamp_column: Optional[str],
+        created_timestamp_column: str,
         start_date: datetime,
         end_date: datetime,
     ):
@@ -332,7 +332,7 @@ class PandasEvaluationEngine(EvaluationEngine):
 
 
 class DaskEvaluationEngine(PandasEvaluationEngine):
-    def _read_data(self, feature_view: FeatureView):
+    def _read_data(self, feature_view):
         storage_options = (
             {
                 "client_kwargs": {
@@ -347,7 +347,7 @@ class DaskEvaluationEngine(PandasEvaluationEngine):
             feature_view.batch_source.path, storage_options=storage_options
         )
 
-    def _read_data_offline(self, data_source: DataSource):
+    def _read_data_offline(self, data_source):
         storage_options = (
             {
                 "client_kwargs": {
