@@ -281,7 +281,8 @@ def _run_dask_field_mapping(
 ):
     if field_mapping:
         # run field mapping in the forward direction
-        table.rename(field_mapping)
+        table = table.rename(field_mapping)
+        table = table.persist()
 
 
 def _convert_arrow_to_proto(
