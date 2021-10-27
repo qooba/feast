@@ -150,7 +150,14 @@ class PandasEvaluationEngine(EvaluationEngine):
 
         return entity_df_with_features
 
-    def _filter_entities(self, feature_view, table, entity_df_with_features, event_timestamp_column, entity_df_event_timestamp_col):
+    def _filter_entities(
+        self,
+        feature_view,
+        table,
+        entity_df_with_features,
+        event_timestamp_column,
+        entity_df_event_timestamp_col,
+    ):
         return table
 
     def _rename_columns(self, df_to_join, columns_map):
@@ -159,12 +166,9 @@ class PandasEvaluationEngine(EvaluationEngine):
     def _sort_by_timestamp(self, df_to_join, event_timestamp_column):
         return df_to_join.sort_values(by=event_timestamp_column)
 
-    def _drop_duplicates(self, df_to_join,right_entity_key_sort_columns):
+    def _drop_duplicates(self, df_to_join, right_entity_key_sort_columns):
         df_to_join.drop_duplicates(
-            right_entity_key_sort_columns,
-            keep="last",
-            ignore_index=True,
-            inplace=True,
+            right_entity_key_sort_columns, keep="last", ignore_index=True, inplace=True,
         )
         return df_to_join
 
@@ -214,12 +218,17 @@ class PandasEvaluationEngine(EvaluationEngine):
             )
 
             table = self._read_data(feature_view)
-            table = self._filter_entities(feature_view, table, entity_df_with_features, event_timestamp_column, entity_df_event_timestamp_col)
+            table = self._filter_entities(
+                feature_view,
+                table,
+                entity_df_with_features,
+                event_timestamp_column,
+                entity_df_event_timestamp_col,
+            )
             df_to_join = self._run_field_mapping(table, feature_view)
             df_to_join = self._run_timestamp_mapping(
                 df_to_join, event_timestamp_column, created_timestamp_column
             )
-
 
             # Sort dataframe by the event timestamp column (is this needed ?)
             # df_to_join = df_to_join.sort_values(event_timestamp_column)
@@ -239,11 +248,10 @@ class PandasEvaluationEngine(EvaluationEngine):
                     formatted_feature_name = feature
                 # Add the feature name to the list of columns
                 feature_names.append(formatted_feature_name)
-                columns_map[feature]=formatted_feature_name
+                columns_map[feature] = formatted_feature_name
 
             # Ensure that the source dataframe feature column includes the feature view name as a prefix
             df_to_join = self._rename_columns(df_to_join, columns_map)
-
 
             # Build a list of entity columns to join on (from the right table)
             join_keys = []
@@ -264,13 +272,16 @@ class PandasEvaluationEngine(EvaluationEngine):
                     created_timestamp_column
                 ]
 
-
             df_to_join = self._sort_by_timestamp(df_to_join, event_timestamp_column)
 
-            df_to_join = self._drop_duplicates(df_to_join,right_entity_key_sort_columns)
+            df_to_join = self._drop_duplicates(
+                df_to_join, right_entity_key_sort_columns
+            )
 
             # Select only the columns we need to join from the feature dataframe
-            df_to_join = self._select_columns(df_to_join, right_entity_key_columns, feature_names)
+            df_to_join = self._select_columns(
+                df_to_join, right_entity_key_columns, feature_names
+            )
 
             # Do point in-time-join between entity_df and feature dataframe
 
@@ -443,13 +454,20 @@ class DaskEvaluationEngine(PandasEvaluationEngine):
 
         return entity_df_with_features
 
-    def _filter_entities(self, feature_view, table, entity_df_with_features, event_timestamp_column, entity_df_event_timestamp_col):
+    def _filter_entities(
+        self,
+        feature_view,
+        table,
+        entity_df_with_features,
+        event_timestamp_column,
+        entity_df_event_timestamp_col,
+    ):
         entity_name = feature_view.entities[0]
         table = dd.merge(table, entity_df_with_features[[entity_name]])
         table = table.persist()
-        #min_date=(entity_df_with_features[entity_df_event_timestamp_col].min()-feature_view.ttl).to_datetime64()
-        #table=table[table[event_timestamp_column]>min_date]
-        #table=table.persist()
+        # min_date=(entity_df_with_features[entity_df_event_timestamp_col].min()-feature_view.ttl).to_datetime64()
+        # table=table[table[event_timestamp_column]>min_date]
+        # table=table.persist()
         return table
 
     def _rename_columns(self, df_to_join, columns_map):
@@ -460,11 +478,9 @@ class DaskEvaluationEngine(PandasEvaluationEngine):
         df_to_join = df_to_join.sort_values(by=event_timestamp_column)
         return df_to_join.persist()
 
-    def _drop_duplicates(self, df_to_join,right_entity_key_sort_columns):
+    def _drop_duplicates(self, df_to_join, right_entity_key_sort_columns):
         df_to_join = df_to_join.drop_duplicates(
-            right_entity_key_sort_columns,
-            keep="last",
-            ignore_index=True,
+            right_entity_key_sort_columns, keep="last", ignore_index=True,
         )
         return df_to_join.persist()
 
