@@ -109,7 +109,6 @@ class Provider(abc.ABC):
         registry: Registry,
         project: str,
         tqdm_builder: Callable[[int], tqdm],
-        use_dask: bool = False,
     ) -> None:
         pass
 
